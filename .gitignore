@@ -1,0 +1,17 @@
+# Environment
+.env
+
+# Dependencies
+node_modules/
+
+# Claude Code local settings
+.claude/
+
+# Output / data files
+output/
+data/
+user_data/
+
+# OS
+.DS_Store
+Thumbs.db
