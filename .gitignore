@@ -1,5 +1,7 @@
 # Environment
 .env
+.env.*
+!.env.example
 
 # Dependencies
 node_modules/
@@ -11,7 +13,12 @@ node_modules/
 output/
 data/
 user_data/
+storage/
+.vite/
+coverage/
+dist/
 
 # OS
 .DS_Store
 Thumbs.db
+.vercel

@@ -4,7 +4,12 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "tsx src/services/app_server.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.json --noEmit",
+    "verify:local": "tsx scripts/verify-local.ts",
+    "package:source": "node scripts/package-source.mjs"
   },
   "keywords": [],
   "author": "",
@@ -16,18 +21,32 @@
       "onFail": "download"
     }
   },
+  "pnpm": {
+    "ignoredBuiltDependencies": [],
+    "onlyBuiltDependencies": [
+      "sharp"
+    ]
+  },
   "type": "module",
   "dependencies": {
+    "@vercel/blob": "^2.3.3",
+    "archiver": "^8.0.0",
     "axios": "^1.16.0",
     "csv-parser": "^3.2.1",
     "csv-writer": "^1.6.0",
     "dotenv": "^17.4.2",
+    "openai": "^6.38.0",
     "playwright": "^1.60.0",
-    "prompts": "^2.4.2"
+    "prompts": "^2.4.2",
+    "sharp": "^0.34.5",
+    "undici": "^8.3.0"
   },
   "devDependencies": {
+    "@types/archiver": "^7.0.0",
     "@types/node": "^25.7.0",
+    "@types/prompts": "^2.4.9",
     "tsx": "^4.21.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.6"
   }
 }

@@ -13,8 +13,10 @@
 import * as http from "node:http";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import csvParser from "csv-parser";
 import dotenv from "dotenv";
+import { handleEtsyAgentRoute, tryServeEtsyMedia } from "./etsyImageAgent/apiRouter.js";
 import { matchByImage } from "./matcher1688/image_search.js";
 
 dotenv.config();
@@ -98,9 +100,11 @@ const MIME: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
 };
 
 function reply(res: http.ServerResponse, status: number, data: unknown, ct?: string): void {
@@ -112,15 +116,20 @@ function reply(res: http.ServerResponse, status: number, data: unknown, ct?: str
   res.end(body);
 }
 
-function serveFile(res: http.ServerResponse, filePath: string): void {
+function serveFile(res: http.ServerResponse, filePath: string, headOnly = false): void {
   if (!fs.existsSync(filePath)) { reply(res, 404, "Not Found"); return; }
   const ext = path.extname(filePath).toLowerCase();
   const data = fs.readFileSync(filePath);
   res.writeHead(200, {
     "Content-Type": MIME[ext] ?? "application/octet-stream",
+    "Content-Length": data.length,
     "Access-Control-Allow-Origin": "*",
     "Cache-Control": "no-cache, no-store, must-revalidate",
   });
+  if (headOnly) {
+    res.end();
+    return;
+  }
   res.end(data);
 }
 
@@ -399,7 +408,7 @@ function parseGeneratedText(raw: string, fallbackPrice: string): Pick<GeneratedC
     optimizedTitle: (titleMatch?.[1] ?? legacyTitle?.[1] ?? fallbackTitle ?? "").trim().slice(0, 140),
     optimizedDescription: (descMatch?.[1] ?? clean.slice(0, 400)).trim().slice(0, 600),
     optimizedTags: (tagsMatch?.[1] ?? fallbackTags).trim().replace(/^[0-9]+[.)\s]*/, "").replace(/^[-•*]\s*/, ""),
-    suggestedPrice: priceMatch ? `$${priceMatch[1].trim()}` : fallbackPrice,
+    suggestedPrice: priceMatch?.[1] ? `$${priceMatch[1].trim()}` : fallbackPrice,
   };
 }
 
@@ -407,18 +416,32 @@ function parseGeneratedText(raw: string, fallbackPrice: string): Pick<GeneratedC
 // HTTP Router
 // ══════════════════════════════════════════════════════════════
 
-async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+export async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   const url = req.url ?? "/";
   const method = req.method ?? "GET";
+  const pathname = new URL(url, "http://localhost").pathname;
+
+  if (tryServeEtsyMedia(req, res)) return;
+  if (await handleEtsyAgentRoute(req, res)) return;
 
   // Static files
-  if (method === "GET") {
+  if (method === "GET" || method === "HEAD") {
+    const headOnly = method === "HEAD";
     if (url === "/" || url === "/app" || url === "/app.html") {
-      return serveFile(res, path.join(PUBLIC_DIR, "app.html"));
+      return serveFile(res, path.join(PUBLIC_DIR, "app.html"), headOnly);
+    }
+    if (pathname === "/etsy-image-agent") {
+      return serveFile(res, path.join(PUBLIC_DIR, "etsy-image-agent.html"), headOnly);
+    }
+    if (pathname === "/asset-library") {
+      return serveFile(res, path.join(PUBLIC_DIR, "asset-library.html"), headOnly);
+    }
+    if (pathname === "/settings/openai") {
+      return serveFile(res, path.join(PUBLIC_DIR, "openai-settings.html"), headOnly);
     }
     if (url.startsWith("/public/") || url.startsWith("/assets/")) {
       const safe = path.normalize(url).replace(/^[/\\]/, "");
-      return serveFile(res, path.resolve(safe));
+      return serveFile(res, path.resolve(safe), headOnly);
     }
     if (url.startsWith("/api/placeholder/")) {
       const id = url.replace("/api/placeholder/", "");
@@ -618,7 +641,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       if (!gen) return reply(res, 404, { error: "Generation not found" });
       const allowed = ["optimizedTitle", "optimizedDescription", "optimizedTags", "suggestedPrice"];
       if (allowed.includes(field)) {
-        (gen as Record<string, string>)[field] = value;
+        (gen as unknown as Record<string, string>)[field] = value;
       }
       return reply(res, 200, { ok: true });
     }
@@ -682,7 +705,7 @@ function generateDemoProducts(keyword: string): EtsyProduct[] {
 }
 
 async function saveMatchesCache(matches: Match1688[]): Promise<void> {
-  const dir = path.resolve("output");
+  const dir = path.resolve(process.env.VERCEL ? "/tmp/etsyauto-output" : "output");
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   const header = "etsy_title,etsy_url,1688_title,1688_url,1688_price";
   const lines = matches.map(m => {
@@ -694,21 +717,30 @@ async function saveMatchesCache(matches: Match1688[]): Promise<void> {
 
 // ══════════════════════════════════════════════════════════════
 
-const server = http.createServer((req, res) => {
-  handle(req, res).catch((err) => {
-    console.error("Server error:", err);
-    if (!res.headersSent) reply(res, 500, { error: "Internal error" });
+export function createEtsyautoServer(): http.Server {
+  return http.createServer((req, res) => {
+    handle(req, res).catch((err) => {
+      console.error("Server error:", err);
+      if (!res.headersSent) reply(res, 500, { error: "Internal error" });
+    });
   });
-});
+}
 
-server.listen(PORT, () => {
-  console.log("");
-  console.log("╔══════════════════════════════════════════════╗");
-  console.log("║   Etsy → 1688 Workflow Platform             ║");
-  console.log("╚══════════════════════════════════════════════╝");
-  console.log("");
-  console.log(`   Open:  http://localhost:${PORT}`);
-  console.log(`   IMAGE2:  ${IMAGE2_KEY ? "configured ✓" : "not set"}`);
-  console.log(`   DEEPSEEK: ${DEEPSEEK_KEY ? "configured ✓" : "not set"}`);
-  console.log("");
-});
+function startLocalServer(): void {
+  const server = createEtsyautoServer();
+  server.listen(PORT, () => {
+    console.log("");
+    console.log("╔══════════════════════════════════════════════╗");
+    console.log("║   Etsy → 1688 Workflow Platform             ║");
+    console.log("╚══════════════════════════════════════════════╝");
+    console.log("");
+    console.log(`   Open:  http://localhost:${PORT}`);
+    console.log(`   IMAGE2:  ${IMAGE2_KEY ? "configured" : "not set"}`);
+    console.log(`   DEEPSEEK: ${DEEPSEEK_KEY ? "configured" : "not set"}`);
+    console.log("");
+  });
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  startLocalServer();
+}

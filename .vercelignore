@@ -1,0 +1,9 @@
+.env
+.env.*
+data/
+storage/
+output/
+user_data/
+coverage/
+*.log
+*.local

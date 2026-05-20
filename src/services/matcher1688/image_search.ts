@@ -170,7 +170,7 @@ export async function search1688ByImage(imageUrl: string): Promise<ImageSearchRe
     }
 
     const results = await page.evaluate(() => {
-      const items: ImageSearchResult[] = [];
+      const items: Array<{ title: string; price: string; url: string; imageUrl: string }> = [];
 
       // 1688 search result selectors — try multiple patterns
       const selectors = [

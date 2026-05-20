@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Etsyauto 图片 Agent</title>
+<style>
+:root{--bg:#f7f8f7;--surface:#fff;--surface2:#f1f4f2;--border:#dfe5df;--text:#1d2420;--muted:#66736d;--accent:#315f54;--accent2:#24483f;--ok:#0f7a55;--ok-bg:#eaf7f1;--warn:#a8640d;--warn-bg:#fff5e6;--bad:#c63535;--bad-bg:#fff0f0;--info:#356bb3;--info-bg:#edf4ff;--shadow:0 1px 2px rgba(20,30,24,.08),0 8px 20px rgba(20,30,24,.05)}
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5}button{font:inherit;cursor:pointer}.container{max-width:1380px;margin:0 auto;padding:0 24px}header{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.94);border-bottom:1px solid var(--border);backdrop-filter:blur(10px)}.nav{height:64px;display:flex;align-items:center;justify-content:space-between;gap:16px}.brand{font-weight:850;font-size:18px}.links{display:flex;gap:10px}.links a{color:var(--muted);text-decoration:none;font-weight:650;padding:8px 10px;border-radius:8px}.links a.active,.links a:hover{background:var(--surface2);color:var(--text)}main{padding:28px 0 56px}.hero{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;margin-bottom:18px}.hero h1{font-size:30px;margin:0 0 6px}.hero p{margin:0;color:var(--muted);max-width:760px}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.btn{border:0;border-radius:8px;padding:10px 14px;font-weight:780;display:inline-flex;align-items:center;justify-content:center;gap:6px}.btn.primary{background:var(--accent);color:#fff}.btn.primary:hover{background:var(--accent2)}.btn.secondary{background:#fff;border:1px solid var(--border);color:var(--text)}.btn.danger{background:var(--bad-bg);color:var(--bad)}.btn:disabled{opacity:.45;cursor:not-allowed}.badge{display:inline-flex;align-items:center;border-radius:999px;padding:4px 9px;font-size:11px;font-weight:850}.pass{background:var(--ok-bg);color:var(--ok)}.warning{background:var(--warn-bg);color:var(--warn)}.fail{background:var(--bad-bg);color:var(--bad)}.info{background:var(--info-bg);color:var(--info)}.grid{display:grid;grid-template-columns:360px 1fr;gap:18px;align-items:start}.panel{background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow);padding:16px}.panel h2{font-size:15px;margin:0 0 12px}.stack{display:flex;flex-direction:column;gap:14px}.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.stat{background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px}.stat .n{font-size:24px;font-weight:900}.stat .l{font-size:12px;color:var(--muted)}.muted{color:var(--muted);font-size:12px}.folder{border:1px solid var(--border);border-radius:9px;padding:10px;background:#fbfcfb;margin-bottom:8px}.folder b{display:block}.alert{border-radius:10px;border:1px solid var(--border);padding:12px;background:#fff}.alert.warn{background:var(--warn-bg);border-color:#efc27e}.alert.err{background:var(--bad-bg);border-color:#ecaaaa}.progress{height:10px;border-radius:999px;background:var(--surface2);overflow:hidden}.bar{height:100%;background:var(--accent);width:0;transition:width .2s}.items{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}.item{background:#fff;border:1px solid var(--border);border-radius:10px;overflow:hidden}.item img{width:100%;aspect-ratio:1;object-fit:cover;background:var(--surface2);display:block}.item .body{padding:11px}.meta{display:grid;gap:4px;margin:8px 0}.prompt{white-space:pre-wrap;max-height:84px;overflow:auto;background:var(--surface2);border-radius:8px;padding:8px;font-size:12px}.empty{padding:44px 18px;text-align:center;color:var(--muted);background:#fff;border:1px dashed var(--border);border-radius:12px}@media(max-width:960px){.grid{grid-template-columns:1fr}.hero{align-items:flex-start;flex-direction:column}.stats{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<header><div class="container nav"><div class="brand">Etsyauto · 图片 Agent 主工作台</div><nav class="links"><a class="active" href="/etsy-image-agent">图片 Agent</a><a href="/asset-library">素材库</a><a href="/settings/openai">OpenAI 设置</a></nav></div></header>
+<main><div class="container">
+  <section class="hero">
+    <div><h1>桌面批量图生图</h1><p>读取桌面“图片输入”和“提示词输入”，按同名文件一一配对，用 OpenAI Image 生成待审查候选图。过关后保存到桌面“图片输出”，并清理生成过程残留。</p></div>
+    <div class="row"><span class="badge info" id="modelBadge">读取中</span><span class="badge warning" id="realBadge">检查中</span><span class="badge warning" id="keyBadge">Key 检查中</span></div>
+  </section>
+  <div class="grid">
+    <aside class="stack">
+      <section class="panel">
+        <h2>固定文件夹</h2>
+        <div class="folder"><b>图片输入</b><span class="muted" id="inputDir">~/Desktop/图片输入</span></div>
+        <div class="folder"><b>提示词输入</b><span class="muted" id="promptDir">~/Desktop/提示词输入</span></div>
+        <div class="folder"><b>图片输出</b><span class="muted" id="outputDir">~/Desktop/图片输出</span></div>
+        <div class="alert" id="scanBox">尚未扫描。</div>
+        <div class="row" style="margin-top:12px"><button class="btn secondary" onclick="scanFolders()">扫描配对</button><button class="btn primary" id="startBtn" onclick="startBatch()">读取并生成</button></div>
+      </section>
+      <section class="panel">
+        <h2>OpenAI</h2>
+        <div class="meta muted" id="openaiMeta">读取中...</div>
+        <div class="alert warn">真实生成会调用 OpenAI Images edit，并可能产生费用。默认按 `low` quality、`1024x1024` 批量执行。</div>
+      </section>
+    </aside>
+    <section class="stack">
+      <div class="stats">
+        <div class="stat"><div class="n" id="statTotal">0</div><div class="l">本批配对</div></div>
+        <div class="stat"><div class="n" id="statGenerated">0</div><div class="l">待审查</div></div>
+        <div class="stat"><div class="n" id="statApproved">0</div><div class="l">已过关输出</div></div>
+        <div class="stat"><div class="n" id="statFailed">0</div><div class="l">失败</div></div>
+      </div>
+      <section class="panel">
+        <div class="row" style="justify-content:space-between;margin-bottom:10px"><h2 style="margin:0">批次进度</h2><span class="badge info" id="batchStatus">无批次</span></div>
+        <div class="progress"><div class="bar" id="progressBar"></div></div>
+        <div class="muted" id="batchMeta" style="margin-top:8px">点击“读取并生成”开始。</div>
+      </section>
+      <section class="panel">
+        <h2>人工质量检测</h2>
+        <div id="items" class="empty">生成候选图后，每张图会显示“过关”和“重新生成”两个按钮。</div>
+      </section>
+    </section>
+  </div>
+</div></main>
+<script>
+let settings=null,currentBatch=null,pollTimer=null,lastScanCount=0;
+async function api(url,opts){const r=await fetch(url,opts);const j=await r.json().catch(()=>({ok:false,error:'Invalid response'}));if(!r.ok||j.ok===false){const e=new Error(j.error||`HTTP ${r.status}`);e.code=j.code||j.details?.code;e.details=j.details;throw e;}return j.data;}
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+function readableError(e){const code=e?.code||e?.details?.code||'';const map={OPENAI_API_KEY_MISSING:'缺少 OPENAI_API_KEY，请到 OpenAI 设置页配置。',REAL_GENERATION_DISABLED:'真实生成未启用，请设置 IMAGE_AGENT_ENABLE_REAL_GENERATION=true。',OPENAI_COST_RISK_CONFIRMATION_REQUIRED:'本批数量或质量可能增加成本，请确认后再开始。',OPENAI_IMAGE_PARAMETER_UNSUPPORTED:'当前模型或中转站不支持某个图片参数，请到 OpenAI 设置页将 Input fidelity 设为 off，或更换支持该参数的模型/中转站。',OPENAI_IMAGE_EMPTY_RESPONSE:'OpenAI 或中转站返回成功，但响应中没有可保存图片。请确认该 Base URL 支持 OpenAI Images edit 非流式图生图。',OPENAI_IMAGE_INVALID_RESPONSE_IMAGE:'OpenAI 或中转站返回的数据不是有效图片，未保存伪造结果。',OPENAI_IMAGE_DOWNLOAD_FAILED:'OpenAI 返回了图片 URL，但下载或校验失败。请确认中转站返回的是可下载图片。',OPENAI_IMAGE_MODEL_UNAVAILABLE:'当前账号无法使用所选图片模型，请检查 gpt-image-2 权限。',OPENAI_ORG_VERIFICATION_REQUIRED:'OpenAI 账号或组织需要完成验证。',OPENAI_INSUFFICIENT_QUOTA:'OpenAI 额度或账单不可用。',OPENAI_RATE_LIMITED:'OpenAI 请求触发限流，请稍后重试。',OPENAI_IMAGE_EDIT_FAILED:'OpenAI 图片编辑失败，未保存伪造结果。'};return map[code]||e?.message||String(e)}
+async function loadSettings(){settings=await api('/api/etsy-agent/image-provider-settings');modelBadge.textContent=`OpenAI · ${settings.model}`;realBadge.textContent=settings.flags.realGenerationEnabled?'real enabled':'real disabled';realBadge.className='badge '+(settings.flags.realGenerationEnabled?'pass':'warning');keyBadge.textContent=settings.configured?`Key ${settings.source} ${settings.maskedKey||''}`:'OPENAI_API_KEY missing';keyBadge.className='badge '+(settings.configured?'pass':'fail');openaiMeta.innerHTML=`<div>Model：${esc(settings.model)}</div><div>Base URL：${esc(settings.baseURL||'OpenAI default')}</div><div>Size：${esc(settings.imageSize)}</div><div>Quality：${esc(settings.imageQuality)}</div><div>Input fidelity：${esc(settings.inputFidelity||'off')} (${esc(settings.inputFidelitySource||'default')})</div><div>Provider：OpenAI only</div>`;}
+async function loadBatch(){currentBatch=await api('/api/etsy-agent/desktop-batch');renderBatch();if(currentBatch&&(currentBatch.status==='queued'||currentBatch.status==='running'))startPolling();else stopPolling();}
+function startPolling(){clearInterval(pollTimer);pollTimer=setInterval(loadBatch,1600);}
+function stopPolling(){clearInterval(pollTimer);pollTimer=null;}
+async function scanFolders(){try{scanBox.className='alert';scanBox.textContent='正在扫描...';const data=await api('/api/etsy-agent/desktop-batch/scan');lastScanCount=data.pairs.length;inputDir.textContent=data.inputDir;promptDir.textContent=data.promptDir;outputDir.textContent=data.outputDir;scanBox.innerHTML=`找到 <b>${data.pairs.length}</b> 对同名文件：${data.pairs.map(p=>esc(p.baseName)).join('、')||'无'}`;}catch(e){scanBox.className='alert err';scanBox.textContent=readableError(e);}}
+async function startBatch(){let confirmedCostRisk=false;try{startBtn.disabled=true;const risk=(lastScanCount>1)||(settings&&settings.imageQuality!=='low');if(risk){confirmedCostRisk=confirm(`本批约 ${lastScanCount||'多'} 张，质量为 ${settings?.imageQuality||'unknown'}，会调用 OpenAI 并产生费用。确认继续？`);if(!confirmedCostRisk){scanBox.className='alert warn';scanBox.textContent='已取消生成。';return;}}scanBox.className='alert';scanBox.textContent='正在创建批次并调用 OpenAI...';currentBatch=await api('/api/etsy-agent/desktop-batch/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmedCostRisk})});renderBatch();startPolling();}catch(e){if((e.code||e.details?.code)==='OPENAI_COST_RISK_CONFIRMATION_REQUIRED'&&confirm(`${readableError(e)}\n仍要继续？`)){currentBatch=await api('/api/etsy-agent/desktop-batch/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmedCostRisk:true})});renderBatch();startPolling();return;}scanBox.className='alert err';scanBox.textContent=readableError(e);}finally{startBtn.disabled=false;}}
+async function approveItem(id){if(!confirm('这张图过关并保存到桌面“图片输出”？保存后候选素材会被清理。'))return;currentBatch=await api(`/api/etsy-agent/desktop-batch/items/${encodeURIComponent(id)}/approve`,{method:'POST'});renderBatch();}
+async function regenerateItem(id){scanBox.className='alert';scanBox.textContent='正在重新生成当前图片...';currentBatch=await api(`/api/etsy-agent/desktop-batch/items/${encodeURIComponent(id)}/regenerate`,{method:'POST'});renderBatch();startPolling();}
+function renderBatch(){const b=currentBatch;statTotal.textContent=b?.totalItems||0;statGenerated.textContent=b?.generatedItems||0;statApproved.textContent=b?.approvedItems||0;statFailed.textContent=b?.failedItems||0;batchStatus.textContent=b?b.status:'无批次';batchStatus.className='badge '+(!b?'info':b.status==='failed'?'fail':b.status==='approved'?'pass':b.status==='reviewing'?'warning':'info');const progress=b?Math.round(((b.generatedItems+b.approvedItems+b.failedItems)/Math.max(b.totalItems,1))*100):0;progressBar.style.width=progress+'%';batchMeta.textContent=b?`${b.batchId} · ${b.model} · ${b.size} · ${b.quality}`:'点击“读取并生成”开始。';if(b&&['failed','reviewing','approved','cleared'].includes(b.status)&&/正在创建批次|正在重新生成/.test(scanBox.textContent||'')){scanBox.className=b.status==='failed'?'alert err':'alert';scanBox.textContent=b.status==='failed'?'批次失败。请查看失败卡片，修复配置后点击“重新生成”。':b.status==='reviewing'?'生成完成，等待人工质量检测。':b.status==='approved'?'本批已完成输出。':'批次已清理。';}if(!b||!b.items.length){items.className='empty';items.textContent='生成候选图后，每张图会显示“过关”和“重新生成”两个按钮。';return;}items.className='items';items.innerHTML=b.items.map(renderItem).join('');}
+function renderItem(item){const statusClass=item.status==='generated'||item.status==='approved'?'pass':item.status==='failed'?'fail':item.status==='running'?'warning':'info';const img=item.publicUrl?`<img src="${esc(item.publicUrl)}" alt="">`:`<div class="empty" style="border:0;border-radius:0;min-height:220px">${item.status==='running'?'生成中...':item.status==='approved'?'已输出：'+esc(item.outputFileName||''):'等待生成'}</div>`;const actions=item.status==='generated'?`<button class="btn primary" onclick="approveItem('${esc(item.itemId)}')">过关</button><button class="btn secondary" onclick="regenerateItem('${esc(item.itemId)}')">重新生成</button>`:item.status==='failed'?`<button class="btn secondary" onclick="regenerateItem('${esc(item.itemId)}')">重新生成</button>`:'';return `<article class="item">${img}<div class="body"><div class="row" style="justify-content:space-between"><b>${esc(item.baseName)}</b><span class="badge ${statusClass}">${esc(item.status)}</span></div><div class="meta muted"><span>图片：${esc(item.inputFileName)}</span><span>提示词：${esc(item.promptFileName)}</span>${item.outputFileName?`<span>输出：${esc(item.outputFileName)}</span>`:''}</div><div class="prompt">${esc(item.promptPreview||'')}</div>${item.error?`<div class="alert err" style="margin-top:8px">${esc(item.error)}</div>`:''}<div class="row" style="margin-top:10px">${actions}</div></div></article>`}
+loadSettings().then(loadBatch).catch(e=>{scanBox.className='alert err';scanBox.textContent=readableError(e)});
+</script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+{
+  "buildCommand": "pnpm build",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "outputDirectory": "public",
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  },
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/index" },
+    { "source": "/media/etsy-agent/:path*", "destination": "/api/index" },
+    { "source": "/etsy-image-agent", "destination": "/etsy-image-agent.html" },
+    { "source": "/asset-library", "destination": "/asset-library.html" },
+    { "source": "/settings/openai", "destination": "/openai-settings.html" },
+    { "source": "/settings/image-provider-settings", "destination": "/openai-settings.html" },
+    { "source": "/app", "destination": "/app.html" },
+    { "source": "/", "destination": "/app.html" }
+  ]
+}

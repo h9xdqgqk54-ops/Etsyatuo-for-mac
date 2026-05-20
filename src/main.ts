@@ -128,7 +128,7 @@ function normalizeRecord(row: Record<string, string>): EtsyRecord {
     title: keys["title"] ?? "",
     price: keys["price"] ?? "0",
     link: keys["link"] ?? "",
-    shopName: keys["shopname"] ?? keys["shop_name"] ?? extractShopName(keys["title"] ?? ""),
+    shopName: keys["shopname"] ?? keys["shop_name"] ?? extractShopName(keys["title"] ?? "") ?? "",
   };
 }
 

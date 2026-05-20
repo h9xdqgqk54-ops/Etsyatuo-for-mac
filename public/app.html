@@ -37,6 +37,9 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:1
 header .container{display:flex;align-items:center;justify-content:space-between}
 .logo{font-weight:800;font-size:18px;display:flex;align-items:center;gap:8px}
 .logo span{background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.top-links{display:inline-flex;align-items:center;gap:8px;margin-right:14px}
+.top-links a{font-size:12px;font-weight:700;color:var(--text2);text-decoration:none;padding:7px 10px;border-radius:8px}
+.top-links a:hover{background:var(--bg);color:var(--text)}
 .badge{padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600}
 .badge-warn{background:var(--amber-bg);color:var(--amber)}
 .badge-ok{background:var(--green-bg);color:var(--green)}
@@ -280,6 +283,11 @@ main{padding:32px 0;min-height:60vh}
   <div class="container">
     <div class="logo"><span>✦</span> <span>Etsy Sourcing Workflow</span></div>
     <div>
+      <nav class="top-links">
+        <a href="/etsy-image-agent">Etsy 图片 Agent</a>
+        <a href="/asset-library">素材库</a>
+        <a href="/settings/openai">Provider 设置</a>
+      </nav>
       <span class="badge badge-warn" id="apiBadgeImg">Image2: mock</span>
       &nbsp;
       <span class="badge badge-warn" id="apiBadgeTxt">Deepseek: mock</span>
