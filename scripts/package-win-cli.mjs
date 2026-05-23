@@ -6,13 +6,13 @@ const entry = path.resolve("dist/cli/etsyauto-launcher.cjs");
 const output = path.resolve("dist/win/Etsyauto.exe");
 
 if (!fs.existsSync(entry)) {
-  console.error("Missing CLI build output. Run `pnpm build:cli` first.");
+  console.error("Missing CLI build output. Run `npm run build:cli` or `pnpm build:cli` first.");
   process.exit(1);
 }
 
 if (process.platform !== "win32" && process.env.ETSYAUTO_ALLOW_CROSS_PACKAGE !== "1") {
   console.error("Windows .exe packaging must run on Windows so native dependencies such as sharp match the target platform.");
-  console.error("Run `pnpm package:win` on a Windows machine or Windows CI. Set ETSYAUTO_ALLOW_CROSS_PACKAGE=1 only for experimental cross-packaging.");
+  console.error("Run `npm run package:win` or `pnpm package:win` on a Windows machine or Windows CI. Set ETSYAUTO_ALLOW_CROSS_PACKAGE=1 only for experimental cross-packaging.");
   process.exit(1);
 }
 

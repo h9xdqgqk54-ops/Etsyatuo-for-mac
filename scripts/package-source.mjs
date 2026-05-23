@@ -11,6 +11,7 @@ const zipRoot = "etsyauto-source-ready";
 
 const requiredFiles = [
   "package.json",
+  "package-lock.json",
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",
   "tsconfig.json",

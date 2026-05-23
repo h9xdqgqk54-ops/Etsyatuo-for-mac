@@ -161,7 +161,7 @@ IMAGE_AGENT_ENABLE_REAL_GENERATION=true
 5. 生成结果先保存为素材库候选图；点击“通过并保存到输出文件夹”复制到输出目录并清理候选记录。
 6. 在商品工作台维护图片信息配对、款式英文名和 Etsy listing 文案。
 
-Prompt records 落盘在 `data/etsy-agent/prompt-records.json`，重启 `pnpm dev` 后不会丢失。批量重新生成会跳过人工 `edited` / `approved` 的记录；单张覆盖需要二次确认。
+Prompt records 落盘在 `data/etsy-agent/prompt-records.json`，重启本地服务后不会丢失。批量重新生成会跳过人工 `edited` / `approved` 的记录；单张覆盖需要二次确认。
 
 ## 页面
 
@@ -180,12 +180,17 @@ Prompt records 落盘在 `data/etsy-agent/prompt-records.json`，重启 `pnpm de
 本地开发启动：
 
 ```bash
+npm run desktop:dev
+# 或
 pnpm desktop:dev
 ```
 
 常用参数：
 
 ```bash
+npm run desktop:dev -- --port 0
+npm run desktop:dev -- --no-open --port 3456
+# 或
 pnpm desktop:dev -- --port 0
 pnpm desktop:dev -- --no-open --port 3456
 ```
@@ -193,6 +198,9 @@ pnpm desktop:dev -- --no-open --port 3456
 Windows 打包在 Windows 电脑或 Windows CI 上执行：
 
 ```bash
+npm install
+npm run package:win
+# 或
 pnpm install
 pnpm package:win
 ```
@@ -210,9 +218,15 @@ Windows 用户双击 `Etsyauto.exe` 后，会打开一个命令行窗口并启�
 ## 验证
 
 ```bash
-pnpm typecheck
-pnpm test
-pnpm build
-pnpm verify:local
-pnpm build:cli
+npm run typecheck
+npm test
+npm run build
+npm run verify:local
+npm run build:cli
+# 或使用 pnpm：
+# pnpm typecheck
+# pnpm test
+# pnpm build
+# pnpm verify:local
+# pnpm build:cli
 ```

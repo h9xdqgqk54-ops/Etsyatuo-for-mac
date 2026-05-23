@@ -22,7 +22,7 @@ export function assertRealImageSmokeTestAllowed(): void {
   const settings = getImageProviderConfig();
   if (!settings.realGenerationEnabled) throw new Error("真实图片生成未启用。请设置 IMAGE_AGENT_ENABLE_REAL_GENERATION=true。");
   if (!settings.providers.openai.configured) {
-    throw new Error("OPENAI_API_KEY_MISSING：当前选择 OpenAI Image，但未检测到 OPENAI_API_KEY。请在 .env 设置 OPENAI_API_KEY 后重启 pnpm dev。");
+    throw new Error("OPENAI_API_KEY_MISSING：当前选择 OpenAI Image，但未检测到 OPENAI_API_KEY。请在 .env 设置 OPENAI_API_KEY 后重启本地服务。");
   }
 }
 

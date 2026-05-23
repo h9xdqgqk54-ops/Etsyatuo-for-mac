@@ -10,20 +10,13 @@
     "test": "vitest run",
     "build": "tsc -p tsconfig.json --noEmit",
     "build:cli": "node scripts/build-cli.mjs",
-    "package:win": "pnpm build:cli && node scripts/package-win-cli.mjs && node scripts/package-windows-delivery.mjs",
+    "package:win": "node scripts/build-cli.mjs && node scripts/package-win-cli.mjs && node scripts/package-windows-delivery.mjs",
     "verify:local": "tsx scripts/verify-local.ts",
     "package:source": "node scripts/package-source.mjs"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "devEngines": {
-    "packageManager": {
-      "name": "pnpm",
-      "version": "^11.1.1",
-      "onFail": "download"
-    }
-  },
   "pnpm": {
     "ignoredBuiltDependencies": [],
     "onlyBuiltDependencies": [
@@ -51,9 +44,11 @@
     "sharp": "^0.34.5",
     "undici": "^8.3.0"
   },
-  "devDependencies": {
+  "optionalDependencies": {
     "@img/sharp-libvips-win32-x64": "1.2.4",
-    "@img/sharp-win32-x64": "0.34.5",
+    "@img/sharp-win32-x64": "0.34.5"
+  },
+  "devDependencies": {
     "@types/archiver": "^7.0.0",
     "@types/node": "^25.7.0",
     "@types/prompts": "^2.4.9",

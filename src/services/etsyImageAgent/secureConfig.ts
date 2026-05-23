@@ -530,7 +530,7 @@ export async function testOpenAIConnection(): Promise<{ ok: boolean; status: Ope
   const status = publicOpenAISettingsStatus();
   if (!config.providers.openai.configured) {
     appendSecurityEvent("image_provider_connection_test_failed", { provider: "openai", reason: "OPENAI_API_KEY_MISSING" });
-    return { ok: false, status, selectedProvider: "openai", realGenerationEnabled: config.realGenerationEnabled, message: "OPENAI_API_KEY_MISSING：当前选择 OpenAI Image，但未检测到 OPENAI_API_KEY。请在 .env 设置 OPENAI_API_KEY 后重启 pnpm dev。" };
+    return { ok: false, status, selectedProvider: "openai", realGenerationEnabled: config.realGenerationEnabled, message: "OPENAI_API_KEY_MISSING：当前选择 OpenAI Image，但未检测到 OPENAI_API_KEY。请在 .env 设置 OPENAI_API_KEY 后重启本地服务。" };
   }
   if (!config.realGenerationEnabled) {
     appendSecurityEvent("image_provider_connection_test_config_only", { provider: "openai", realGenerationEnabled: false });

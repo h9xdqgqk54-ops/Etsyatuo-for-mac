@@ -241,12 +241,6 @@ importers:
         specifier: ^8.3.0
         version: 8.3.0
     devDependencies:
-      '@img/sharp-libvips-win32-x64':
-        specifier: 1.2.4
-        version: 1.2.4
-      '@img/sharp-win32-x64':
-        specifier: 0.34.5
-        version: 0.34.5
       '@types/archiver':
         specifier: ^7.0.0
         version: 7.0.0
@@ -271,6 +265,13 @@ importers:
       vitest:
         specifier: ^4.1.6
         version: 4.1.6(@types/node@25.7.0)(vite@8.0.13(@types/node@25.7.0)(esbuild@0.28.0)(tsx@4.21.0))
+    optionalDependencies:
+      '@img/sharp-libvips-win32-x64':
+        specifier: 1.2.4
+        version: 1.2.4
+      '@img/sharp-win32-x64':
+        specifier: 0.34.5
+        version: 0.34.5
 
 packages:
 
@@ -2193,7 +2194,8 @@ snapshots:
   '@img/sharp-libvips-linuxmusl-x64@1.2.4':
     optional: true
 
-  '@img/sharp-libvips-win32-x64@1.2.4': {}
+  '@img/sharp-libvips-win32-x64@1.2.4':
+    optional: true
 
   '@img/sharp-linux-arm64@0.34.5':
     optionalDependencies:
@@ -2246,7 +2248,8 @@ snapshots:
   '@img/sharp-win32-ia32@0.34.5':
     optional: true
 
-  '@img/sharp-win32-x64@0.34.5': {}
+  '@img/sharp-win32-x64@0.34.5':
+    optional: true
 
   '@isaacs/fs-minipass@4.0.1':
     dependencies:

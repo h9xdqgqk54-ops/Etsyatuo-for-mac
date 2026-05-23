@@ -11,8 +11,25 @@ describe("CLI launcher packaging", () => {
 
     expect(packageJson.scripts?.["desktop:dev"]).toBe("tsx src/cli/launcher.ts");
     expect(packageJson.scripts?.["build:cli"]).toBe("node scripts/build-cli.mjs");
-    expect(packageJson.scripts?.["package:win"]).toBe("pnpm build:cli && node scripts/package-win-cli.mjs && node scripts/package-windows-delivery.mjs");
+    expect(packageJson.scripts?.["package:win"]).toBe("node scripts/build-cli.mjs && node scripts/package-win-cli.mjs && node scripts/package-windows-delivery.mjs");
     expect(packageJson.pkg?.assets).toEqual(expect.arrayContaining(["public/**/*", "node_modules/sharp/**/*", "node_modules/@img/**/*"]));
+  });
+
+  it("supports both npm and pnpm installs without enforcing a single package manager", () => {
+    const packageJson = JSON.parse(fs.readFileSync(path.resolve("package.json"), "utf-8")) as {
+      devEngines?: unknown;
+      optionalDependencies?: Record<string, string>;
+      packageManager?: string;
+    };
+
+    expect(fs.existsSync(path.resolve("pnpm-lock.yaml"))).toBe(true);
+    expect(fs.existsSync(path.resolve("package-lock.json"))).toBe(true);
+    expect(packageJson.packageManager).toBeUndefined();
+    expect(packageJson.devEngines).toBeUndefined();
+    expect(packageJson.optionalDependencies).toEqual(expect.objectContaining({
+      "@img/sharp-libvips-win32-x64": "1.2.4",
+      "@img/sharp-win32-x64": "0.34.5",
+    }));
   });
 
   it("keeps concrete build scripts in the repository", () => {

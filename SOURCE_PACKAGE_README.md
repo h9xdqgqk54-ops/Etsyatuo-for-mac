@@ -1,6 +1,6 @@
 # Etsyauto Source Package
 
-This archive is a source-ready copy of the Etsyauto project. It is intended to be unpacked, installed with pnpm, and run locally without committing or sharing local secrets.
+This archive is a source-ready copy of the Etsyauto project. It is intended to be unpacked, installed with npm or pnpm, and run locally without committing or sharing local secrets.
 
 ## Included
 
@@ -8,7 +8,7 @@ This archive is a source-ready copy of the Etsyauto project. It is intended to b
 - API entry in `api/`
 - Static pages in `public/`
 - Project docs and local verification scripts
-- `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `tsconfig.json`, and `vercel.json`
+- `package.json`, `package-lock.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `tsconfig.json`, and `vercel.json`
 - `.env.example` with placeholder-only configuration
 
 ## Excluded
@@ -25,8 +25,19 @@ The package script intentionally excludes local runtime data, secrets, dependenc
 ## Run From A Fresh Unzip
 
 ```bash
-pnpm install
+npm install
 cp .env.example .env
+npm run typecheck
+npm test
+npm run build
+npm run verify:local
+npm run dev
+```
+
+pnpm remains supported for users who prefer it:
+
+```bash
+pnpm install
 pnpm typecheck
 pnpm test
 pnpm build
@@ -41,6 +52,8 @@ The default `.env.example` uses the mock image provider and does not require rea
 From the Etsyauto project root:
 
 ```bash
+npm run package:source
+# or
 pnpm package:source
 ```
 
