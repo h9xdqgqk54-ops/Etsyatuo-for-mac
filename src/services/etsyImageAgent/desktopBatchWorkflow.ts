@@ -1,5 +1,4 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { getAssetStorage } from "./assetStorage.js";
 import { deleteAsset, findAsset, listAssets, saveAsset } from "./assetLibrary.js";
@@ -7,10 +6,12 @@ import { etsyAgentConfig } from "./config.js";
 import { checkEtsyCompliance } from "./complianceService.js";
 import { generateOpenAIImageEditFromFile } from "./imageProviders/openaiProvider.js";
 import { getCurrentImageProviderSettings } from "./imageProviders/registry.js";
+import { imageAgentFolders, requireInputAsset, scanInputAssets } from "./inputAssetRegistry.js";
+import { findBestPromptRecord, findImagePromptRecord, promptHash as promptRecordHash, updateImagePromptRecord } from "./promptGenerationService.js";
 import { checkGeneratedImageQuality } from "./qualityService.js";
 import { isStructuredError, structuredError } from "./structuredErrors.js";
-import type { AssetRecord, QualityStatus } from "./types.js";
-import { ensureDir, hashBuffer, makeId, nowIso, safeJoin, slugify } from "./utils.js";
+import type { AssetRecord, ImagePromptStatus, InputAssetRecord, QualityStatus } from "./types.js";
+import { ensureDir, makeId, nowIso, safeJoin, slugify } from "./utils.js";
 
 export type DesktopBatchStatus = "queued" | "running" | "reviewing" | "approved" | "failed" | "cleared";
 export type DesktopBatchItemStatus = "queued" | "running" | "generated" | "failed" | "approved" | "cleared";
@@ -19,11 +20,15 @@ export interface DesktopBatchItem {
   itemId: string;
   batchId: string;
   baseName: string;
+  inputAssetId: string;
   inputFileName: string;
-  promptFileName: string;
+  promptFileName?: string;
   inputPath: string;
-  promptPath: string;
-  prompt: string;
+  mimeType: string;
+  promptRecordId: string;
+  promptTextSnapshot: string;
+  negativePromptSnapshot: string;
+  promptStatusAtGeneration: ImagePromptStatus;
   status: DesktopBatchItemStatus;
   error?: string;
   assetId?: string;
@@ -51,7 +56,6 @@ export interface DesktopBatch {
   updatedAt: string;
   completedAt?: string;
   inputDir: string;
-  promptDir: string;
   outputDir: string;
   totalItems: number;
   generatedItems: number;
@@ -63,7 +67,7 @@ export interface DesktopBatch {
   items: DesktopBatchItem[];
 }
 
-export interface PublicDesktopBatchItem extends Omit<DesktopBatchItem, "inputPath" | "promptPath" | "prompt"> {
+export interface PublicDesktopBatchItem extends Omit<DesktopBatchItem, "inputPath"> {
   promptPreview: string;
 }
 
@@ -71,42 +75,39 @@ export interface PublicDesktopBatch extends Omit<DesktopBatch, "items"> {
   items: PublicDesktopBatchItem[];
 }
 
-interface DesktopPair {
-  baseName: string;
-  inputFileName: string;
-  promptFileName: string;
-  inputPath: string;
-  promptPath: string;
-  mimeType: string;
-  prompt: string;
+interface DesktopGenerationSource {
+  asset: InputAssetRecord;
+  promptRecordId: string;
+  promptTextSnapshot: string;
+  negativePromptSnapshot: string;
+  promptStatusAtGeneration: ImagePromptStatus;
+  promptHash: string;
 }
-
-const IMAGE_EXTENSIONS = new Map([
-  [".jpg", "image/jpeg"],
-  [".jpeg", "image/jpeg"],
-  [".png", "image/png"],
-  [".webp", "image/webp"],
-]);
 
 const batchesFile = path.join(etsyAgentConfig.storageRoot, "metadata", "desktop-batches.json");
 const queue: string[] = [];
+const runningItems = new Set<string>();
 let active = false;
 
-export function desktopFolders(): { inputDir: string; promptDir: string; outputDir: string } {
-  const root = path.resolve(process.env.ETSY_AGENT_DESKTOP_ROOT ?? path.join(os.homedir(), "Desktop"));
-  return {
-    inputDir: path.join(root, "图片输入"),
-    promptDir: path.join(root, "提示词输入"),
-    outputDir: path.join(root, "图片输出"),
-  };
+export function desktopFolders(): { inputDir: string; outputDir: string } {
+  return imageAgentFolders();
 }
 
-export function scanDesktopBatchFolders(): { inputDir: string; promptDir: string; outputDir: string; pairs: Array<Omit<DesktopPair, "inputPath" | "promptPath" | "prompt">> } {
-  const folders = desktopFolders();
-  const pairs = scanDesktopPairs(folders);
+export function scanDesktopBatchFolders(): { inputDir: string; outputDir: string; assets: InputAssetRecord[]; pairs: Array<{ baseName: string; inputFileName: string; mimeType: string; inputAssetId: string; promptRecordId?: string; promptStatus?: string }> } {
+  const scan = scanInputAssets();
   return {
-    ...folders,
-    pairs: pairs.map(({ inputPath: _inputPath, promptPath: _promptPath, prompt: _prompt, ...pair }) => pair),
+    ...scan,
+    pairs: scan.assets.map((asset) => {
+      const promptRecord = findBestPromptRecord(asset.inputAssetId);
+      return {
+        baseName: asset.baseName,
+        inputFileName: asset.fileName,
+        mimeType: asset.mimeType,
+        inputAssetId: asset.inputAssetId,
+        promptRecordId: promptRecord?.id,
+        promptStatus: promptRecord?.status,
+      };
+    }),
   };
 }
 
@@ -117,36 +118,26 @@ export function getCurrentDesktopBatch(): PublicDesktopBatch | null {
   return batch ? publicBatch(recomputeBatchCounts(batch)) : null;
 }
 
+export function getDesktopBatchById(batchId: string): PublicDesktopBatch | null {
+  const batch = findBatch(batchId);
+  return batch ? publicBatch(recomputeBatchCounts(batch)) : null;
+}
+
 export function startDesktopBatchGeneration(input: { confirmedCostRisk?: boolean } = {}): PublicDesktopBatch {
   const settings = getCurrentImageProviderSettings("openai");
-  if (!settings.configured) {
-    throw structuredError({
-      code: "OPENAI_API_KEY_MISSING",
-      message: "OPENAI_API_KEY_MISSING：当前批量图生图只支持 OpenAI，请先配置 OPENAI_API_KEY。",
-      provider: "openai",
-      model: settings.model,
-    });
-  }
-  if (!settings.enableRealGeneration) {
-    throw structuredError({
-      code: "REAL_GENERATION_DISABLED",
-      message: "REAL_GENERATION_DISABLED：批量图生图会调用 OpenAI，请设置 IMAGE_AGENT_ENABLE_REAL_GENERATION=true。",
-      provider: "openai",
-      model: settings.model,
-    });
-  }
+  assertOpenAIReady(settings);
   cleanupPendingDesktopCandidates();
   const folders = desktopFolders();
-  const pairs = scanDesktopPairs(folders);
-  if (pairs.length === 0) throw new Error("DESKTOP_BATCH_EMPTY：图片输入和提示词输入没有可配对的文件。");
-  if (pairs.length > etsyAgentConfig.maxBatchGeneratedImages) {
-    throw new Error(`DESKTOP_BATCH_TOO_LARGE：单批最多生成 ${etsyAgentConfig.maxBatchGeneratedImages} 张，当前 ${pairs.length} 张。`);
+  const sources = collectGenerationSources();
+  if (sources.length === 0) throw new Error("DESKTOP_BATCH_EMPTY：图片输入目录没有可生成的图片。");
+  if (sources.length > etsyAgentConfig.maxBatchGeneratedImages) {
+    throw new Error(`DESKTOP_BATCH_TOO_LARGE：单批最多生成 ${etsyAgentConfig.maxBatchGeneratedImages} 张，当前 ${sources.length} 张。`);
   }
   const quality = settings.imageQuality ?? etsyAgentConfig.openaiImageQuality;
-  if ((pairs.length > 1 || quality !== "low") && !input.confirmedCostRisk) {
+  if ((sources.length > 1 || quality !== "low") && !input.confirmedCostRisk) {
     throw structuredError({
       code: "OPENAI_COST_RISK_CONFIRMATION_REQUIRED",
-      message: `OPENAI_COST_RISK_CONFIRMATION_REQUIRED：本批将生成 ${pairs.length} 张，质量为 ${quality}。请确认成本风险后再开始。`,
+      message: `OPENAI_COST_RISK_CONFIRMATION_REQUIRED：本批将生成 ${sources.length} 张，质量为 ${quality}。请确认成本风险后再开始。`,
       provider: "openai",
       model: settings.model,
     });
@@ -160,26 +151,28 @@ export function startDesktopBatchGeneration(input: { confirmedCostRisk?: boolean
     createdAt: now,
     updatedAt: now,
     inputDir: folders.inputDir,
-    promptDir: folders.promptDir,
     outputDir: folders.outputDir,
-    totalItems: pairs.length,
+    totalItems: sources.length,
     generatedItems: 0,
     approvedItems: 0,
     failedItems: 0,
     model: settings.model,
     size: settings.imageSize,
     quality,
-    items: pairs.map((pair) => ({
+    items: sources.map((source) => ({
       itemId: makeId("item"),
       batchId,
-      baseName: pair.baseName,
-      inputFileName: pair.inputFileName,
-      promptFileName: pair.promptFileName,
-      inputPath: pair.inputPath,
-      promptPath: pair.promptPath,
-      prompt: pair.prompt,
+      baseName: source.asset.baseName,
+      inputAssetId: source.asset.inputAssetId,
+      inputFileName: source.asset.fileName,
+      inputPath: source.asset.filePath,
+      mimeType: source.asset.mimeType,
+      promptRecordId: source.promptRecordId,
+      promptTextSnapshot: source.promptTextSnapshot,
+      negativePromptSnapshot: source.negativePromptSnapshot,
+      promptStatusAtGeneration: source.promptStatusAtGeneration,
       status: "queued",
-      promptHash: hashBuffer(Buffer.from(pair.prompt)).slice(0, 16),
+      promptHash: source.promptHash,
       attempts: 0,
       createdAt: now,
       updatedAt: now,
@@ -188,6 +181,56 @@ export function startDesktopBatchGeneration(input: { confirmedCostRisk?: boolean
   saveBatch(batch);
   enqueueBatch(batch.batchId);
   return publicBatch(batch);
+}
+
+export function approvePromptAndGenerateImage(promptId: string, input: { confirmedCostRisk?: boolean } = {}): PublicDesktopBatch {
+  const existingPrompt = findImagePromptRecord(promptId);
+  if (!existingPrompt) throw structuredError({ code: "PROMPT_RECORD_NOT_FOUND", message: "PROMPT_RECORD_NOT_FOUND：未找到提示词记录。", provider: "gpt55" });
+  if (!existingPrompt.promptText.trim()) throw structuredError({ code: "PROMPT_REQUIRED", message: "PROMPT_REQUIRED：提示词不能为空，不能生成图片。", provider: "gpt55" });
+
+  const promptRecord = existingPrompt.status === "approved"
+    ? existingPrompt
+    : updateImagePromptRecord(promptId, { status: "approved" });
+  const asset = requireInputAsset(promptRecord.inputAssetId);
+  const settings = getCurrentImageProviderSettings("openai");
+  assertOpenAIReady(settings);
+  const quality = settings.imageQuality ?? etsyAgentConfig.openaiImageQuality;
+  if (quality !== "low" && !input.confirmedCostRisk) {
+    throw structuredError({
+      code: "OPENAI_COST_RISK_CONFIRMATION_REQUIRED",
+      message: `OPENAI_COST_RISK_CONFIRMATION_REQUIRED：本次将使用 ${quality} 质量生成 1 张图。请确认成本风险后再开始。`,
+      provider: "openai",
+      model: settings.model,
+    });
+  }
+
+  ensureDir(desktopFolders().outputDir);
+  const source = generationSourceFromPrompt(asset, promptRecord);
+  const batch = getOrCreateReviewBatch(settings);
+  const duplicate = batch.items.find((item) => item.inputAssetId === source.asset.inputAssetId && item.promptRecordId === source.promptRecordId && item.promptHash === source.promptHash && ["queued", "running", "generated"].includes(item.status));
+  if (duplicate) return publicBatch(recomputeBatchCounts(batch));
+
+  const currentForAsset = batch.items.find((item) => item.inputAssetId === source.asset.inputAssetId && item.status !== "approved" && item.status !== "cleared");
+  if (currentForAsset) {
+    if (currentForAsset.status === "queued" || currentForAsset.status === "running") return publicBatch(recomputeBatchCounts(batch));
+    cleanupItemCandidate(currentForAsset);
+    Object.assign(currentForAsset, desktopBatchItemFromSource(batch.batchId, source, currentForAsset.itemId, currentForAsset.attempts));
+  } else {
+    const activeItemCount = batch.items.filter((item) => item.status !== "cleared").length;
+    if (activeItemCount >= etsyAgentConfig.maxBatchGeneratedImages) {
+      throw new Error(`DESKTOP_BATCH_TOO_LARGE：单批最多生成 ${etsyAgentConfig.maxBatchGeneratedImages} 张，当前 ${activeItemCount} 张。`);
+    }
+    batch.items.push(desktopBatchItemFromSource(batch.batchId, source));
+  }
+  batch.status = "queued";
+  batch.model = settings.model;
+  batch.size = settings.imageSize;
+  batch.quality = quality;
+  batch.updatedAt = nowIso();
+  const saved = saveBatch(recomputeBatchCounts(batch));
+  const item = saved.items.find((candidate) => candidate.inputAssetId === source.asset.inputAssetId && candidate.promptRecordId === source.promptRecordId && candidate.promptHash === source.promptHash);
+  if (item) launchBatchItemGeneration(saved.batchId, item.itemId);
+  return publicBatch(findBatch(saved.batchId) ?? saved);
 }
 
 export function approveDesktopBatchItem(itemId: string): PublicDesktopBatch {
@@ -215,6 +258,7 @@ export function approveDesktopBatchItem(itemId: string): PublicDesktopBatch {
 export function regenerateDesktopBatchItem(itemId: string): PublicDesktopBatch {
   const batch = requireBatchForItem(itemId);
   const item = requireBatchItem(batch, itemId);
+  if (item.status === "running") return publicBatch(recomputeBatchCounts(batch));
   cleanupItemCandidate(item);
   item.status = "queued";
   item.error = undefined;
@@ -225,9 +269,87 @@ export function regenerateDesktopBatchItem(itemId: string): PublicDesktopBatch {
   item.updatedAt = nowIso();
   batch.status = "queued";
   batch.updatedAt = item.updatedAt;
-  saveBatch(recomputeBatchCounts(batch));
-  enqueueBatch(batch.batchId);
-  return publicBatch(batch);
+  const saved = saveBatch(recomputeBatchCounts(batch));
+  launchBatchItemGeneration(saved.batchId, itemId);
+  return publicBatch(findBatch(saved.batchId) ?? saved);
+}
+
+function assertOpenAIReady(settings: ReturnType<typeof getCurrentImageProviderSettings>): void {
+  if (!settings.configured) {
+    throw structuredError({
+      code: "OPENAI_API_KEY_MISSING",
+      message: "OPENAI_API_KEY_MISSING：当前批量图生图只支持 OpenAI，请先配置 OPENAI_API_KEY。",
+      provider: "openai",
+      model: settings.model,
+    });
+  }
+  if (!settings.enableRealGeneration) {
+    throw structuredError({
+      code: "REAL_GENERATION_DISABLED",
+      message: "REAL_GENERATION_DISABLED：批量图生图会调用 OpenAI，请设置 IMAGE_AGENT_ENABLE_REAL_GENERATION=true。",
+      provider: "openai",
+      model: settings.model,
+    });
+  }
+}
+
+function getOrCreateReviewBatch(settings: ReturnType<typeof getCurrentImageProviderSettings>): DesktopBatch {
+  const batches = readBatches();
+  const existing = batches
+    .filter((batch) => batch.status === "queued" || batch.status === "running" || batch.status === "reviewing")
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  if (existing) return recomputeBatchCounts(existing);
+  const folders = desktopFolders();
+  const now = nowIso();
+  return {
+    batchId: makeId("batch"),
+    status: "queued",
+    createdAt: now,
+    updatedAt: now,
+    inputDir: folders.inputDir,
+    outputDir: folders.outputDir,
+    totalItems: 0,
+    generatedItems: 0,
+    approvedItems: 0,
+    failedItems: 0,
+    model: settings.model,
+    size: settings.imageSize,
+    quality: settings.imageQuality ?? etsyAgentConfig.openaiImageQuality,
+    items: [],
+  };
+}
+
+function generationSourceFromPrompt(asset: InputAssetRecord, promptRecord: NonNullable<ReturnType<typeof findImagePromptRecord>>): DesktopGenerationSource {
+  return {
+    asset,
+    promptRecordId: promptRecord.id,
+    promptTextSnapshot: promptRecord.promptText,
+    negativePromptSnapshot: promptRecord.negativePrompt,
+    promptStatusAtGeneration: promptRecord.status,
+    promptHash: promptRecord.promptHash || promptRecordHash(promptRecord.promptText, promptRecord.negativePrompt),
+  };
+}
+
+function desktopBatchItemFromSource(batchId: string, source: DesktopGenerationSource, itemId = makeId("item"), attempts = 0): DesktopBatchItem {
+  const now = nowIso();
+  return {
+    itemId,
+    batchId,
+    baseName: source.asset.baseName,
+    inputAssetId: source.asset.inputAssetId,
+    inputFileName: source.asset.fileName,
+    inputPath: source.asset.filePath,
+    mimeType: source.asset.mimeType,
+    promptRecordId: source.promptRecordId,
+    promptTextSnapshot: source.promptTextSnapshot,
+    negativePromptSnapshot: source.negativePromptSnapshot,
+    promptStatusAtGeneration: source.promptStatusAtGeneration,
+    status: "queued",
+    promptHash: source.promptHash,
+    attempts,
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 export function cleanupPendingDesktopCandidates(): { deleted: number } {
@@ -277,66 +399,100 @@ async function runBatch(batch: DesktopBatch): Promise<void> {
   batch.status = "running";
   batch.updatedAt = nowIso();
   saveBatch(batch);
-  const concurrency = Math.max(1, etsyAgentConfig.maxConcurrentGenerations);
-  while (batch.items.some((item) => item.status === "queued")) {
-    const jobs = batch.items.filter((item) => item.status === "queued").slice(0, concurrency);
-    await Promise.all(jobs.map((item) => runBatchItem(batch, item)));
-    saveBatch(recomputeBatchCounts(batch));
-  }
-  const updated = recomputeBatchCounts(batch);
-  updated.status = updated.generatedItems > 0 ? "reviewing" : "failed";
-  updated.completedAt = nowIso();
-  updated.updatedAt = updated.completedAt;
-  saveBatch(updated);
+  const itemIds = batch.items.filter((item) => item.status === "queued").map((item) => item.itemId);
+  await Promise.all(itemIds.map((itemId) => runBatchItemById(batch.batchId, itemId)));
 }
 
-async function runBatchItem(batch: DesktopBatch, item: DesktopBatchItem): Promise<void> {
+function launchBatchItemGeneration(batchId: string, itemId: string): void {
+  if (runningItems.has(itemId)) return;
+  runningItems.add(itemId);
+  const claimed = claimBatchItemForGeneration(batchId, itemId);
+  if (!claimed) {
+    runningItems.delete(itemId);
+    return;
+  }
+  void Promise.resolve()
+    .then(() => runClaimedBatchItem(batchId, itemId, claimed))
+    .finally(() => {
+      runningItems.delete(itemId);
+    });
+}
+
+async function runBatchItemById(batchId: string, itemId: string): Promise<void> {
+  const claimed = claimBatchItemForGeneration(batchId, itemId);
+  if (!claimed) return;
+  await runClaimedBatchItem(batchId, itemId, claimed);
+}
+
+function claimBatchItemForGeneration(batchId: string, itemId: string): { batch: DesktopBatch; item: DesktopBatchItem } | undefined {
+  return mutateBatchItem(batchId, itemId, (batch, item) => {
+    if (item.status !== "queued") return false;
+    item.status = "running";
+    item.error = undefined;
+    item.attempts += 1;
+    item.startedAt = nowIso();
+    item.updatedAt = item.startedAt;
+    batch.status = "running";
+    batch.updatedAt = item.updatedAt;
+    return true;
+  });
+}
+
+async function runClaimedBatchItem(batchId: string, itemId: string, claimed: { batch: DesktopBatch; item: DesktopBatchItem }): Promise<void> {
+  const completed = await generateBatchItem(claimed.batch, claimed.item);
+  mutateBatchItem(batchId, itemId, (_batch, item) => {
+    if (item.startedAt !== claimed.item.startedAt || item.attempts !== claimed.item.attempts) return false;
+    Object.assign(item, completed);
+    return true;
+  });
+}
+
+async function generateBatchItem(batch: DesktopBatch, item: DesktopBatchItem): Promise<DesktopBatchItem> {
   const settings = getCurrentImageProviderSettings("openai");
-  item.status = "running";
-  item.error = undefined;
-  item.attempts += 1;
-  item.startedAt = nowIso();
-  item.updatedAt = item.startedAt;
-  saveBatch(recomputeBatchCounts(batch));
+  const nextItem: DesktopBatchItem = { ...item };
   try {
-    const mimeType = mimeTypeForImageFile(item.inputFileName);
-    validateDesktopImage(item.inputPath, mimeType);
+    validateDesktopImage(nextItem.inputPath, nextItem.mimeType);
     const outputDir = safeJoin(etsyAgentConfig.storageRoot, `assets/desktop-${slugify(batch.batchId)}`);
     ensureDir(outputDir);
-    const outputPath = path.join(outputDir, `${slugify(item.baseName, "image")}-${Date.now()}.png`);
+    const outputPath = path.join(outputDir, `${slugify(nextItem.baseName, "image")}-${Date.now()}-${slugify(nextItem.itemId, "item")}.png`);
     const generation = await generateOpenAIImageEditFromFile({
-      inputPath: item.inputPath,
-      mimeType,
-      prompt: promptForOpenAIImageEdit(item.prompt),
+      inputPath: nextItem.inputPath,
+      mimeType: nextItem.mimeType,
+      prompt: promptForOpenAIImageEdit(nextItem.promptTextSnapshot, nextItem.negativePromptSnapshot),
       outputPath,
       settings,
-      requireRegisteredMediaPath: false,
+      requireRegisteredMediaPath: true,
     });
-    const quality = await checkGeneratedImageQuality(outputPath, item.prompt, listAssets());
-    const compliance = checkEtsyCompliance(item.prompt, item.prompt, quality.reason);
+    const quality = await checkGeneratedImageQuality(outputPath, nextItem.promptTextSnapshot, listAssets());
+    const compliance = checkEtsyCompliance(nextItem.promptTextSnapshot, nextItem.promptTextSnapshot, quality.reason);
     const asset: AssetRecord = {
       assetId: makeId("asset"),
       taskId: batch.batchId,
-      productGroupId: item.itemId,
-      sourceProductGroupId: item.itemId,
+      productGroupId: nextItem.itemId,
+      sourceProductGroupId: nextItem.itemId,
       batchId: batch.batchId,
-      itemId: item.itemId,
-      baseName: item.baseName,
-      inputFileName: item.inputFileName,
-      promptFileName: item.promptFileName,
+      itemId: nextItem.itemId,
+      baseName: nextItem.baseName,
+      inputAssetId: nextItem.inputAssetId,
+      inputFileName: nextItem.inputFileName,
+      promptFileName: nextItem.promptFileName,
       reviewStatus: "pending",
-      originalFileNames: [item.inputFileName, item.promptFileName],
+      originalFileNames: [nextItem.inputFileName],
       generatedFilePath: outputPath,
       publicUrl: getAssetStorage().publicUrlForLocalPath(outputPath),
-      prompt: item.prompt,
-      optimizedPrompt: item.prompt,
+      prompt: nextItem.promptTextSnapshot,
+      optimizedPrompt: nextItem.promptTextSnapshot,
       provider: "openai",
       imageGenerationMode: "product_reference",
       shotType: "hero_white_background",
-      referenceAssetIds: [item.itemId],
+      referenceAssetIds: [nextItem.inputAssetId],
       preserveProduct: true,
       usedReferenceImage: true,
-      promptHash: item.promptHash,
+      promptHash: nextItem.promptHash,
+      promptRecordId: nextItem.promptRecordId,
+      promptTextSnapshot: nextItem.promptTextSnapshot,
+      negativePromptSnapshot: nextItem.negativePromptSnapshot,
+      promptStatusAtGeneration: nextItem.promptStatusAtGeneration,
       providerTraceId: generation.providerTraceId,
       openaiRequestId: generation.openaiRequestId,
       model: generation.model,
@@ -355,31 +511,33 @@ async function runBatchItem(batch: DesktopBatch, item: DesktopBatchItem): Promis
       aspectRatio: "1:1",
       originalityRiskLevel: "low",
     };
-    cleanupItemCandidate(item);
+    cleanupItemCandidate(nextItem);
     saveAsset(asset);
-    item.status = "generated";
-    item.assetId = asset.assetId;
-    item.publicUrl = asset.publicUrl;
-    item.model = generation.model;
-    item.size = generation.outputSize;
-    item.quality = generation.quality;
-    item.openaiRequestId = generation.openaiRequestId;
-    item.providerTraceId = generation.providerTraceId;
-    item.completedAt = nowIso();
-    item.updatedAt = item.completedAt;
+    nextItem.status = "generated";
+    nextItem.assetId = asset.assetId;
+    nextItem.publicUrl = asset.publicUrl;
+    nextItem.model = generation.model;
+    nextItem.size = generation.outputSize;
+    nextItem.quality = generation.quality;
+    nextItem.openaiRequestId = generation.openaiRequestId;
+    nextItem.providerTraceId = generation.providerTraceId;
+    nextItem.error = undefined;
+    nextItem.completedAt = nowIso();
+    nextItem.updatedAt = nextItem.completedAt;
   } catch (error) {
-    item.status = "failed";
-    item.error = publicBatchItemError(error);
+    nextItem.status = "failed";
+    nextItem.error = publicBatchItemError(error);
     if (isStructuredError(error)) {
-      item.openaiRequestId = error.requestId;
-      item.providerTraceId = error.requestId;
-      item.model = error.model ?? settings.model;
+      nextItem.openaiRequestId = error.requestId;
+      nextItem.providerTraceId = error.requestId;
+      nextItem.model = error.model ?? settings.model;
     }
-    item.updatedAt = nowIso();
+    nextItem.updatedAt = nowIso();
   }
+  return nextItem;
 }
 
-function promptForOpenAIImageEdit(userPrompt: string): string {
+function promptForOpenAIImageEdit(userPrompt: string, negativePrompt: string): string {
   const normalized = userPrompt
     .replace(/jelly\s*cat/gi, "the same plush toy shown in the reference image")
     .replace(/jellycat/gi, "the same plush toy shown in the reference image")
@@ -391,7 +549,8 @@ function promptForOpenAIImageEdit(userPrompt: string): string {
     "Do not create a new product, similar variant, new design, logo, watermark, brand text, marketplace UI, certification text, or readable label text.",
     "If the user prompt mentions a brand or marketplace, treat it only as private context and do not render brand marks or platform marks.",
     `User visual direction: ${normalized}`,
-  ].join("\n");
+    negativePrompt.trim() ? `Avoid: ${negativePrompt.trim()}` : "",
+  ].filter(Boolean).join("\n");
 }
 
 function publicBatchItemError(error: unknown): string {
@@ -403,68 +562,33 @@ function publicBatchItemError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function scanDesktopPairs(folders: { inputDir: string; promptDir: string; outputDir: string }): DesktopPair[] {
-  assertDirectory(folders.inputDir, "图片输入");
-  assertDirectory(folders.promptDir, "提示词输入");
-  const images = collectInputImages(folders.inputDir);
-  const prompts = collectPromptFiles(folders.promptDir);
-  const missingPrompts = [...images.keys()].filter((baseName) => !prompts.has(baseName));
-  const missingImages = [...prompts.keys()].filter((baseName) => !images.has(baseName));
-  if (missingPrompts.length > 0) throw new Error(`PROMPT_FILE_MISSING：缺少提示词文件：${missingPrompts.join(", ")}`);
-  if (missingImages.length > 0) throw new Error(`INPUT_IMAGE_MISSING：缺少图片文件：${missingImages.join(", ")}`);
-  return [...images.entries()]
-    .sort(([a], [b]) => a.localeCompare(b, "zh-CN", { numeric: true }))
-    .map(([baseName, image]) => {
-      const promptFile = prompts.get(baseName)!;
-      const prompt = fs.readFileSync(promptFile.fullPath, "utf-8").trim();
-      if (!prompt) throw new Error(`PROMPT_FILE_EMPTY：${promptFile.fileName} 内容为空。`);
-      return {
-        baseName,
-        inputFileName: image.fileName,
-        promptFileName: promptFile.fileName,
-        inputPath: image.fullPath,
-        promptPath: promptFile.fullPath,
-        mimeType: image.mimeType,
-        prompt,
-      };
+function collectGenerationSources(): DesktopGenerationSource[] {
+  const scan = scanInputAssets();
+  const missing: string[] = [];
+  const sources = scan.assets.map((asset) => {
+    const promptRecord = findBestPromptRecord(asset.inputAssetId);
+    if (!promptRecord) {
+      missing.push(asset.fileName);
+      return null;
+    }
+    return {
+      asset,
+      promptRecordId: promptRecord.id,
+      promptTextSnapshot: promptRecord.promptText,
+      negativePromptSnapshot: promptRecord.negativePrompt,
+      promptStatusAtGeneration: promptRecord.status,
+      promptHash: promptRecord.promptHash || promptRecordHash(promptRecord.promptText, promptRecord.negativePrompt),
+    };
+  }).filter((source): source is DesktopGenerationSource => Boolean(source));
+  if (missing.length > 0) {
+    throw structuredError({
+      code: "PROMPT_REQUIRED",
+      message: `PROMPT_REQUIRED：以下图片还没有提示词，请先点击“根据图片自动生成提示词”并人工确认：${missing.join(", ")}`,
+      provider: "gpt55",
+      reason: missing.join(", "),
     });
-}
-
-function collectInputImages(dir: string): Map<string, { fileName: string; fullPath: string; mimeType: string }> {
-  const images = new Map<string, { fileName: string; fullPath: string; mimeType: string }>();
-  for (const entry of visibleFiles(dir)) {
-    const ext = path.extname(entry).toLowerCase();
-    const mimeType = IMAGE_EXTENSIONS.get(ext);
-    if (!mimeType) continue;
-    const baseName = path.basename(entry, ext);
-    if (images.has(baseName)) throw new Error(`DUPLICATE_INPUT_BASENAME：图片输入中存在重复 basename：${baseName}`);
-    images.set(baseName, { fileName: entry, fullPath: safeJoin(dir, entry), mimeType });
   }
-  return images;
-}
-
-function collectPromptFiles(dir: string): Map<string, { fileName: string; fullPath: string }> {
-  const prompts = new Map<string, { fileName: string; fullPath: string }>();
-  for (const entry of visibleFiles(dir)) {
-    const ext = path.extname(entry).toLowerCase();
-    if (ext !== ".txt") continue;
-    const baseName = path.basename(entry, ext);
-    if (prompts.has(baseName)) throw new Error(`DUPLICATE_PROMPT_BASENAME：提示词输入中存在重复 basename：${baseName}`);
-    prompts.set(baseName, { fileName: entry, fullPath: safeJoin(dir, entry) });
-  }
-  return prompts;
-}
-
-function visibleFiles(dir: string): string[] {
-  return fs.readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && !entry.name.startsWith("."))
-    .map((entry) => entry.name);
-}
-
-function assertDirectory(dir: string, label: string): void {
-  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
-    throw new Error(`DESKTOP_FOLDER_NOT_FOUND：桌面“${label}”文件夹不存在。`);
-  }
+  return sources;
 }
 
 function validateDesktopImage(filePath: string, mimeType: string): void {
@@ -476,12 +600,6 @@ function validateDesktopImage(filePath: string, mimeType: string): void {
   if (fs.statSync(filePath).size > maxBytes) {
     throw structuredError({ code: "INPUT_IMAGE_TOO_LARGE", message: `INPUT_IMAGE_TOO_LARGE：图片超过 ${etsyAgentConfig.openaiImageMaxInputMb}MB。`, provider: "openai" });
   }
-}
-
-function mimeTypeForImageFile(fileName: string): string {
-  const mimeType = IMAGE_EXTENSIONS.get(path.extname(fileName).toLowerCase());
-  if (!mimeType) throw structuredError({ code: "UNSUPPORTED_INPUT_IMAGE_TYPE", message: "UNSUPPORTED_INPUT_IMAGE_TYPE：图片输入仅支持 JPEG、PNG 或 WebP。", provider: "openai" });
-  return mimeType;
 }
 
 function cleanupItemCandidate(item: DesktopBatchItem): boolean {
@@ -528,12 +646,32 @@ function findBatch(batchId: string): DesktopBatch | undefined {
   return readBatches().find((batch) => batch.batchId === batchId);
 }
 
-function saveBatch(batch: DesktopBatch): void {
+function saveBatch(batch: DesktopBatch): DesktopBatch {
   const batches = readBatches();
+  const normalized = recomputeBatchCounts(batch);
   const index = batches.findIndex((item) => item.batchId === batch.batchId);
-  if (index >= 0) batches[index] = batch;
-  else batches.unshift(batch);
+  if (index >= 0) batches[index] = normalized;
+  else batches.unshift(normalized);
   writeBatches(batches.slice(0, 50));
+  return normalized;
+}
+
+function mutateBatchItem(
+  batchId: string,
+  itemId: string,
+  mutator: (batch: DesktopBatch, item: DesktopBatchItem) => boolean | void,
+): { batch: DesktopBatch; item: DesktopBatchItem } | undefined {
+  const batches = readBatches();
+  const batch = batches.find((candidate) => candidate.batchId === batchId);
+  if (!batch) return undefined;
+  const item = batch.items.find((candidate) => candidate.itemId === itemId);
+  if (!item) return undefined;
+  const shouldSave = mutator(batch, item);
+  if (shouldSave === false) return undefined;
+  batch.updatedAt = nowIso();
+  const normalized = recomputeBatchCounts(batch);
+  writeBatches(batches.slice(0, 50));
+  return { batch: normalized, item: item };
 }
 
 function readBatches(): DesktopBatch[] {
@@ -554,7 +692,12 @@ function recomputeBatchCounts(batch: DesktopBatch): DesktopBatch {
   batch.approvedItems = batch.items.filter((item) => item.status === "approved").length;
   batch.failedItems = batch.items.filter((item) => item.status === "failed").length;
   batch.totalItems = batch.items.length;
+  if (batch.status === "cleared") return batch;
   if (batch.approvedItems === batch.totalItems && batch.totalItems > 0) batch.status = "approved";
+  else if (batch.items.some((item) => item.status === "running")) batch.status = "running";
+  else if (batch.items.some((item) => item.status === "queued")) batch.status = "queued";
+  else if (batch.generatedItems > 0) batch.status = "reviewing";
+  else if (batch.failedItems > 0) batch.status = "failed";
   return batch;
 }
 
@@ -562,9 +705,13 @@ function publicBatch(batch: DesktopBatch): PublicDesktopBatch {
   const { items, ...rest } = recomputeBatchCounts(batch);
   return {
     ...rest,
-    items: items.map(({ inputPath: _inputPath, promptPath: _promptPath, prompt, ...item }) => ({
-      ...item,
-      promptPreview: prompt.slice(0, 240),
-    })),
+    items: items.map(({ inputPath: _inputPath, promptTextSnapshot, ...item }) => {
+      const safePromptTextSnapshot = typeof promptTextSnapshot === "string" ? promptTextSnapshot : "";
+      return {
+        ...item,
+        promptTextSnapshot: safePromptTextSnapshot,
+        promptPreview: safePromptTextSnapshot.slice(0, 240),
+      };
+    }),
   };
 }

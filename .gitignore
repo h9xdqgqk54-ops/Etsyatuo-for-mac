@@ -8,6 +8,7 @@ node_modules/
 
 # Claude Code local settings
 .claude/
+.superpowers/
 
 # Output / data files
 output/

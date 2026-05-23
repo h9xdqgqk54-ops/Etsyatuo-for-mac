@@ -5,11 +5,16 @@ import { createRequire } from "node:module";
 import type archiverType from "archiver";
 import { etsyAgentConfig, storagePathFromPublicUrl } from "./config.js";
 import { deleteAsset, findAsset, findTask, initStorage, isRegisteredMediaPath, listAssets } from "./assetLibrary.js";
-import { approveDesktopBatchItem, cleanupPendingDesktopCandidates, getCurrentDesktopBatch, regenerateDesktopBatchItem, scanDesktopBatchFolders, startDesktopBatchGeneration } from "./desktopBatchWorkflow.js";
+import { approveDesktopBatchItem, approvePromptAndGenerateImage, cleanupPendingDesktopCandidates, getCurrentDesktopBatch, regenerateDesktopBatchItem, scanDesktopBatchFolders, startDesktopBatchGeneration } from "./desktopBatchWorkflow.js";
+import { getImageAgentFolderSettings, saveImageAgentFolderSettings } from "./folderSettings.js";
 import { findGroupSession, mergeGroups, moveImageBetweenGroups, renameGroup, saveGroupSession, setGroupLocked, setGroupMainImage, splitGroup } from "./groupSessionStore.js";
+import { findInputAsset } from "./inputAssetRegistry.js";
+import { finalizeBatchListing, listProductListingRecords, regenerateProductListingRecord, updateProductListingRecord } from "./listingGenerationService.js";
+import { generateProductWorkbenchImageMetas, generateProductWorkbenchStyleNames, getProductWorkbench, syncProductWorkbench, updateProductWorkbenchImageMetas, updateProductWorkbenchStyleNames } from "./productWorkbenchService.js";
+import { clearStalePromptProviderFailures, generatePromptsFromImages, listImagePromptRecords, regenerateImagePromptRecord, saveManualImagePromptRecord, updateImagePromptRecord } from "./promptGenerationService.js";
 import { runRealImageSmokeTest } from "./realSmokeTest.js";
 import { cancelTask, createEtsyAgentTask, getTask, getTasks, regenerateAsset, retryTask, retryTaskProduct } from "./taskQueue.js";
-import { deleteLocalOpenAIKey, publicOpenAISettingsStatus, saveLocalOpenAIBaseURL, saveLocalOpenAIInputFidelity, saveLocalOpenAIKey, testOpenAIConnection } from "./secureConfig.js";
+import { deleteLocalGpt55Key, deleteLocalOpenAIKey, publicOpenAISettingsStatus, saveLocalGpt55PromptSettings, saveLocalOpenAIBaseURL, saveLocalOpenAIInputFidelity, saveLocalOpenAIKey, testGpt55PromptProviderConnection, testOpenAIConnection } from "./secureConfig.js";
 import { publicErrorPayload } from "./structuredErrors.js";
 import { ETSY_PROMPT_TEMPLATES } from "./templates.js";
 import type { AgentApiResponse } from "./types.js";
@@ -17,8 +22,7 @@ import { parseJsonBody, parseMultipartImages } from "./uploadParser.js";
 import { safeJoin } from "./utils.js";
 
 initStorage();
-const require = createRequire(import.meta.url);
-const archiver = require("archiver") as typeof archiverType;
+const createArchive = createLocalRequire()("archiver") as typeof archiverType;
 
 export function isEtsyAgentRoute(url: string): boolean {
   return url.startsWith("/api/etsy-agent/") || url === "/api/etsy-agent";
@@ -56,8 +60,17 @@ export async function handleEtsyAgentRoute(req: http.IncomingMessage, res: http.
       return json(res, 200, { ok: true, deprecated: pathname.includes("openai-settings"), data });
     }
 
+    if (method === "GET" && pathname === "/api/etsy-agent/folder-settings") {
+      return json(res, 200, { ok: true, data: getImageAgentFolderSettings() });
+    }
+
+    if (method === "POST" && pathname === "/api/etsy-agent/folder-settings") {
+      const body = parseJsonBody<{ inputDir?: string; outputDir?: string }>(await readRawBody(req, etsyAgentConfig.maxJsonBodyBytes));
+      return json(res, 200, { ok: true, data: saveImageAgentFolderSettings(body) });
+    }
+
     if (method === "POST" && (pathname === "/api/etsy-agent/image-provider-settings" || pathname === "/api/etsy-agent/openai-settings")) {
-      const body = parseJsonBody<{ apiKey?: string; openaiApiKey?: string; baseURL?: string; baseUrl?: string; openaiBaseURL?: string; openaiBaseUrl?: string; inputFidelity?: string; openaiInputFidelity?: string }>(await readRawBody(req, etsyAgentConfig.maxJsonBodyBytes));
+      const body = parseJsonBody<{ apiKey?: string; openaiApiKey?: string; baseURL?: string; baseUrl?: string; openaiBaseURL?: string; openaiBaseUrl?: string; inputFidelity?: string; openaiInputFidelity?: string; gpt55ApiKey?: string; gpt55BaseURL?: string; gpt55BaseUrl?: string; gpt55Model?: string }>(await readRawBody(req, etsyAgentConfig.maxJsonBodyBytes));
       let status = publicOpenAISettingsStatus();
       if (typeof body.apiKey === "string" && body.apiKey.trim()) status = saveLocalOpenAIKey(body.apiKey);
       if (typeof body.openaiApiKey === "string" && body.openaiApiKey.trim()) status = saveLocalOpenAIKey(body.openaiApiKey);
@@ -65,11 +78,28 @@ export async function handleEtsyAgentRoute(req: http.IncomingMessage, res: http.
       if (typeof baseURL === "string") status = saveLocalOpenAIBaseURL(baseURL);
       const inputFidelity = body.openaiInputFidelity ?? body.inputFidelity;
       if (typeof inputFidelity === "string") status = saveLocalOpenAIInputFidelity(inputFidelity);
-      return json(res, 200, { ok: true, deprecated: pathname.includes("openai-settings"), data: openAIOnlySettingsStatus(status) });
+      const gpt55BaseURL = body.gpt55BaseURL ?? body.gpt55BaseUrl;
+      let stalePromptFailuresCleared = 0;
+      if ((typeof body.gpt55ApiKey === "string" && body.gpt55ApiKey.trim()) || typeof gpt55BaseURL === "string" || typeof body.gpt55Model === "string") {
+        status = saveLocalGpt55PromptSettings({
+          apiKey: body.gpt55ApiKey,
+          baseURL: gpt55BaseURL,
+          model: body.gpt55Model,
+        });
+        if (typeof gpt55BaseURL === "string" || typeof body.gpt55Model === "string") {
+          stalePromptFailuresCleared = clearStalePromptProviderFailures().deleted;
+        }
+      }
+      return json(res, 200, { ok: true, deprecated: pathname.includes("openai-settings"), data: { ...openAIOnlySettingsStatus(status), stalePromptFailuresCleared } });
     }
 
     if (method === "POST" && (pathname === "/api/etsy-agent/image-provider-settings/test" || pathname === "/api/etsy-agent/openai-settings/test")) {
       const result = await testOpenAIConnection();
+      return json(res, result.ok ? 200 : 400, { ok: result.ok, deprecated: pathname.includes("openai-settings"), data: { ...result, status: openAIOnlySettingsStatus(result.status) }, error: result.ok ? undefined : result.message });
+    }
+
+    if (method === "POST" && (pathname === "/api/etsy-agent/image-provider-settings/test-prompt-provider" || pathname === "/api/etsy-agent/openai-settings/test-prompt-provider")) {
+      const result = await testGpt55PromptProviderConnection();
       return json(res, result.ok ? 200 : 400, { ok: result.ok, deprecated: pathname.includes("openai-settings"), data: { ...result, status: openAIOnlySettingsStatus(result.status) }, error: result.ok ? undefined : result.message });
     }
 
@@ -82,8 +112,8 @@ export async function handleEtsyAgentRoute(req: http.IncomingMessage, res: http.
       return json(res, 200, { ok: true, deprecated: pathname.includes("openai-settings"), data: openAIOnlySettingsStatus(deleteLocalOpenAIKey()) });
     }
 
-    if (method === "DELETE" && (pathname === "/api/etsy-agent/image-provider-settings/ark-key" || pathname === "/api/etsy-agent/openai-settings/ark-key")) {
-      return json(res, 410, { ok: false, error: "LEGACY_PROVIDER_REMOVED：当前版本只保留 OpenAI 图片接口。" });
+    if (method === "DELETE" && (pathname === "/api/etsy-agent/image-provider-settings/gpt55-key" || pathname === "/api/etsy-agent/openai-settings/gpt55-key")) {
+      return json(res, 200, { ok: true, deprecated: pathname.includes("openai-settings"), data: openAIOnlySettingsStatus(deleteLocalGpt55Key()) });
     }
 
     if (method === "GET" && pathname === "/api/etsy-agent/desktop-batch") {
@@ -91,7 +121,91 @@ export async function handleEtsyAgentRoute(req: http.IncomingMessage, res: http.
     }
 
     if (method === "GET" && pathname === "/api/etsy-agent/desktop-batch/scan") {
+      clearStalePromptProviderFailures();
       return json(res, 200, { ok: true, data: scanDesktopBatchFolders() });
+    }
+
+    const inputAssetImageMatch = pathname.match(/^\/api\/etsy-agent\/input-assets\/([^/]+)\/image$/);
+    if (method === "GET" && inputAssetImageMatch) {
+      const asset = findInputAsset(decodeURIComponent(inputAssetImageMatch[1]!));
+      if (!asset || !fs.existsSync(asset.filePath)) return text(res, 404, "Not found");
+      return streamFile(res, asset.filePath, asset.fileName);
+    }
+
+    if (method === "GET" && pathname === "/api/etsy-agent/prompts") {
+      clearStalePromptProviderFailures();
+      const inputAssetId = url.searchParams.get("inputAssetId") ?? undefined;
+      return json(res, 200, { ok: true, data: { records: listImagePromptRecords(inputAssetId) } });
+    }
+
+    if (method === "POST" && pathname === "/api/etsy-agent/prompts/manual") {
+      clearStalePromptProviderFailures();
+      const body = parseJsonBody<{ inputAssetId?: string; productGroupId?: string; role?: "main" | "secondary" | "detail" | "lifestyle"; promptText?: string; negativePrompt?: string }>(await readRawBody(req, etsyAgentConfig.maxJsonBodyBytes));
+      const record = saveManualImagePromptRecord({
+        inputAssetId: requireString(body.inputAssetId, "inputAssetId"),
+        productGroupId: body.productGroupId,
+        role: body.role,
+        promptText: requireString(body.promptText, "promptText"),
+        negativePrompt: body.negativePrompt,
+      });
+      return json(res, 201, { ok: true, data: record });
+    }
+
+    if (method === "POST" && pathname === "/api/etsy-agent/prompts/generate-from-images") {
+      clearStalePromptProviderFailures();
+      const rawBody = await readRawBody(req, etsyAgentConfig.maxJsonBodyBytes);
+      const body = rawBody.length > 0 ? parseJsonBody<{ assetIds?: string[]; productGroupId?: string; stylePreset?: "american_vintage_etsy"; roles?: Array<"main" | "secondary" | "detail" | "lifestyle">; mode?: "missing" | "regenerate" }>(rawBody) : {};
+      const result = await generatePromptsFromImages({
+        assetIds: body.assetIds,
+        productGroupId: body.productGroupId,
+        stylePreset: body.stylePreset,
+        roles: body.roles,
+        mode: body.mode,
+      });
+      return json(res, 200, { ok: true, data: result, records: result.records, failed: result.failed, skipped: result.skipped });
+    }
+
+    const promptApproveGenerateMatch = pathname.match(/^\/api\/etsy-agent\/prompts\/([^/]+)\/approve-and-generate$/);
+    if (method === "POST" && promptApproveGenerateMatch) {
+      const rawBody = await readRawBody(req, etsyAgentConfig.maxJsonBodyBytes);
+      const body = rawBody.length > 0 ? parseJsonBody<{ confirmedCostRisk?: boolean }>(rawBody) : {};
+      const batch = approvePromptAndGenerateImage(decodeURIComponent(promptApproveGenerateMatch[1]!), {
+        confirmedCostRisk: Boolean(body.confirmedCostRisk),
+      });
+      return json(res, 200, { ok: true, data: batch });
+    }
+
+    const promptPatchMatch = pathname.match(/^\/api\/etsy-agent\/prompts\/([^/]+)$/);
+    if (method === "PATCH" && promptPatchMatch) {
+      const body = parseJsonBody<{ role?: "main" | "secondary" | "detail" | "lifestyle"; promptText?: string; negativePrompt?: string; status?: "edited" | "approved" }>(await readRawBody(req, etsyAgentConfig.maxJsonBodyBytes));
+      const record = updateImagePromptRecord(decodeURIComponent(promptPatchMatch[1]!), body);
+      return json(res, 200, { ok: true, data: record });
+    }
+
+    const promptRegenerateMatch = pathname.match(/^\/api\/etsy-agent\/prompts\/([^/]+)\/regenerate$/);
+    if (method === "POST" && promptRegenerateMatch) {
+      const rawBody = await readRawBody(req, etsyAgentConfig.maxJsonBodyBytes);
+      const body = rawBody.length > 0 ? parseJsonBody<{ confirmedOverwrite?: boolean }>(rawBody) : {};
+      const record = await regenerateImagePromptRecord(decodeURIComponent(promptRegenerateMatch[1]!), { confirmedOverwrite: Boolean(body.confirmedOverwrite) });
+      return json(res, 200, { ok: true, data: record });
+    }
+
+    if (method === "GET" && pathname === "/api/etsy-agent/listings") {
+      const batchId = url.searchParams.get("batchId") ?? undefined;
+      return json(res, 200, { ok: true, data: { records: listProductListingRecords(batchId) } });
+    }
+
+    const listingPatchMatch = pathname.match(/^\/api\/etsy-agent\/listings\/([^/]+)$/);
+    if (method === "PATCH" && listingPatchMatch) {
+      const body = parseJsonBody<{ title?: string; description?: string; colors?: string; sizeInfo?: string; materials?: string; keywords?: string[] | string; status?: "edited" | "approved" }>(await readRawBody(req, etsyAgentConfig.maxJsonBodyBytes));
+      const record = updateProductListingRecord(decodeURIComponent(listingPatchMatch[1]!), body);
+      return json(res, 200, { ok: true, data: record });
+    }
+
+    const listingRegenerateMatch = pathname.match(/^\/api\/etsy-agent\/listings\/([^/]+)\/regenerate$/);
+    if (method === "POST" && listingRegenerateMatch) {
+      const record = await regenerateProductListingRecord(decodeURIComponent(listingRegenerateMatch[1]!));
+      return json(res, 200, { ok: true, data: record });
     }
 
     if (method === "POST" && pathname === "/api/etsy-agent/desktop-batch/start") {
@@ -102,6 +216,45 @@ export async function handleEtsyAgentRoute(req: http.IncomingMessage, res: http.
 
     if (method === "POST" && pathname === "/api/etsy-agent/desktop-batch/cleanup") {
       return json(res, 200, { ok: true, data: cleanupPendingDesktopCandidates() });
+    }
+
+    const desktopWorkbenchMatch = pathname.match(/^\/api\/etsy-agent\/desktop-batch\/([^/]+)\/workbench$/);
+    if (desktopWorkbenchMatch) {
+      const batchId = decodeURIComponent(desktopWorkbenchMatch[1]!);
+      if (method === "GET") return json(res, 200, { ok: true, data: getProductWorkbench(batchId) });
+      if (method === "POST") return json(res, 200, { ok: true, data: syncProductWorkbench(batchId) });
+    }
+
+    const desktopWorkbenchImageMetasMatch = pathname.match(/^\/api\/etsy-agent\/desktop-batch\/([^/]+)\/workbench\/image-metas$/);
+    if (method === "PATCH" && desktopWorkbenchImageMetasMatch) {
+      const body = parseJsonBody<{ metas?: Array<{ itemId: string; color?: string; size?: string; material?: string; note?: string }> }>(await readRawBody(req, etsyAgentConfig.maxJsonBodyBytes));
+      const record = updateProductWorkbenchImageMetas(decodeURIComponent(desktopWorkbenchImageMetasMatch[1]!), body.metas ?? []);
+      return json(res, 200, { ok: true, data: record });
+    }
+
+    const desktopWorkbenchGenerateImageMetasMatch = pathname.match(/^\/api\/etsy-agent\/desktop-batch\/([^/]+)\/workbench\/image-metas\/generate$/);
+    if (method === "POST" && desktopWorkbenchGenerateImageMetasMatch) {
+      const record = await generateProductWorkbenchImageMetas(decodeURIComponent(desktopWorkbenchGenerateImageMetasMatch[1]!));
+      return json(res, 200, { ok: true, data: record });
+    }
+
+    const desktopWorkbenchStyleNamesMatch = pathname.match(/^\/api\/etsy-agent\/desktop-batch\/([^/]+)\/workbench\/style-names$/);
+    if (method === "PATCH" && desktopWorkbenchStyleNamesMatch) {
+      const body = parseJsonBody<{ styles?: Array<{ itemId: string; styleNameEn?: string }> }>(await readRawBody(req, etsyAgentConfig.maxJsonBodyBytes));
+      const record = updateProductWorkbenchStyleNames(decodeURIComponent(desktopWorkbenchStyleNamesMatch[1]!), body.styles ?? []);
+      return json(res, 200, { ok: true, data: record });
+    }
+
+    const desktopWorkbenchGenerateStyleNamesMatch = pathname.match(/^\/api\/etsy-agent\/desktop-batch\/([^/]+)\/workbench\/style-names\/generate$/);
+    if (method === "POST" && desktopWorkbenchGenerateStyleNamesMatch) {
+      const record = await generateProductWorkbenchStyleNames(decodeURIComponent(desktopWorkbenchGenerateStyleNamesMatch[1]!));
+      return json(res, 200, { ok: true, data: record });
+    }
+
+    const desktopFinalizeListingMatch = pathname.match(/^\/api\/etsy-agent\/desktop-batch\/([^/]+)\/finalize-listing$/);
+    if (method === "POST" && desktopFinalizeListingMatch) {
+      const record = await finalizeBatchListing(decodeURIComponent(desktopFinalizeListingMatch[1]!));
+      return json(res, 200, { ok: true, data: record });
     }
 
     const desktopApproveMatch = pathname.match(/^\/api\/etsy-agent\/desktop-batch\/items\/([^/]+)\/approve$/);
@@ -361,6 +514,29 @@ function openAIOnlySettingsStatus(input = publicOpenAISettingsStatus()): Record<
       realGenerationEnabled: input.flags.realGenerationEnabled,
       mockMode: false,
     },
+    promptProvider: input.promptProvider,
+    promptProviderId: input.promptProvider.provider,
+    gpt55PromptModel: input.promptProvider.model,
+    gpt55PromptModelSource: input.promptProvider.modelSource,
+    gpt55PromptModelEffectiveSource: input.promptProvider.modelEffectiveSource,
+    gpt55PromptModelOverriddenBySession: input.promptProvider.modelOverriddenBySession,
+    gpt55PromptReady: input.promptProvider.ready,
+    gpt55PromptPendingModel: input.promptProvider.pendingModel,
+    gpt55PromptPendingModelSource: input.promptProvider.pendingModelSource,
+    gpt55PromptPendingBaseURL: input.promptProvider.pendingBaseURL,
+    gpt55PromptPendingBaseURLSource: input.promptProvider.pendingBaseURLSource,
+    gpt55PromptConfigured: input.promptProvider.configured,
+    gpt55PromptApiKeyConfigured: input.promptProvider.apiKeyConfigured,
+    gpt55PromptKeySource: input.promptProvider.keySource,
+    gpt55PromptMaskedKey: input.promptProvider.maskedKey,
+    gpt55PromptFingerprint: input.promptProvider.fingerprint,
+    gpt55PromptBaseURL: input.promptProvider.baseURL,
+    gpt55PromptBaseURLSource: input.promptProvider.baseURLSource,
+    gpt55PromptMaxInputMb: input.promptProvider.maxInputMb,
+    gpt55PromptBatchLimit: input.promptProvider.batchLimit,
+    supportsImageInput: input.promptProvider.supportsImageInput,
+    gpt55PromptValidationStatus: input.promptProvider.validationStatus,
+    gpt55PromptLastValidationError: input.promptProvider.lastValidationError,
     allowWebKeyConfig: input.allowWebKeyConfig,
     configPath: input.configPath,
   };
@@ -386,16 +562,36 @@ function text(res: http.ServerResponse, status: number, body: string): true {
   return true;
 }
 
+function createLocalRequire(): NodeJS.Require {
+  try {
+    return createRequire(import.meta.url);
+  } catch {
+    return createRequire(path.join(process.cwd(), "package.json"));
+  }
+}
+
 function streamFile(res: http.ServerResponse, filePath: string, downloadName: string): true {
   const ext = path.extname(filePath).toLowerCase();
-  const ct = ext === ".png" ? "image/png" : ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" : "application/octet-stream";
-  res.writeHead(200, {
+  const ct = ext === ".png" ? "image/png" : ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" : ext === ".webp" ? "image/webp" : "application/octet-stream";
+  const headers: Record<string, string> = {
     "Content-Type": ct,
-    "Content-Disposition": `inline; filename="${downloadName.replace(/"/g, "")}"`,
     "Access-Control-Allow-Origin": "*",
-  });
+  };
+  if (!ct.startsWith("image/")) {
+    headers["Content-Disposition"] = contentDispositionAttachment(downloadName);
+  }
+  res.writeHead(200, headers);
   fs.createReadStream(filePath).pipe(res);
   return true;
+}
+
+function contentDispositionAttachment(fileName: string): string {
+  const ascii = fileName.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "");
+  return `attachment; filename="${ascii || "download"}"; filename*=UTF-8''${encodeRFC5987(fileName)}`;
+}
+
+function encodeRFC5987(value: string): string {
+  return encodeURIComponent(value).replace(/['()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
 }
 
 function streamZip(res: http.ServerResponse, taskId: string, files: string[]): true {
@@ -404,7 +600,7 @@ function streamZip(res: http.ServerResponse, taskId: string, files: string[]): t
     "Content-Disposition": `attachment; filename="${taskId}.zip"`,
     "Access-Control-Allow-Origin": "*",
   });
-  const archive = archiver("zip", { zlib: { level: 9 } });
+  const archive = createArchive("zip", { zlib: { level: 9 } });
   archive.on("error", (err) => {
     if (!res.headersSent) res.writeHead(500);
     res.end(err.message);

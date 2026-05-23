@@ -2,50 +2,59 @@
 
 ## Product Shape
 
-`/etsy-image-agent` is the primary image workbench. The page is an operational tool, not a marketing landing page: dense, scan-friendly, and built around the batch state.
+`/etsy-image-agent` 是主工作台。当前流程是：
 
-The main flow is:
+1. 扫描 `IMAGE_AGENT_INPUT_DIR` 中的图片并登记为 `InputAssetRecord`。
+2. GPT5.5 视觉模型读取每张已登记图片，生成 `ImagePromptRecord`。
+3. 人工编辑/通过 prompt。
+4. OpenAI Images edit 使用同一 `inputAssetId` 的本地图片和 prompt 快照生成候选图。
+5. 人工通过后复制到 `IMAGE_AGENT_OUTPUT_DIR`，并清理候选素材。
 
-1. Scan fixed desktop folders.
-2. Generate OpenAI image edits from same-name image and prompt pairs.
-3. Review each candidate.
-4. Approve to the desktop output folder or regenerate the single item.
+`/asset-library` 和 `/settings/openai` 是子页面。旧上传分组、公网参考图、Cloudflare 和非 OpenAI 图生图流程不属于本轮活跃流程。
 
-`/asset-library` and `/settings/openai` are child pages. The old upload, grouping, task, public reference preflight, and multi-provider flows are not part of the active UI.
+## Provider Boundaries
 
-## OpenAI-only Provider
+GPT5.5 Prompt Provider 只做图片理解、prompt generation、款式名和 listing 文案：
 
-The image provider is OpenAI only. The app calls `client.images.edit` with:
+- `GPT55_API_KEY`
+- `GPT55_BASE_URL`
+- `GPT55_MODEL`
+- `GPT55_MAX_INPUT_MB`
+- `GPT55_BATCH_LIMIT`
 
-- local input image file stream
-- corresponding `.txt` prompt
-- optional `baseURL` from `OPENAI_BASE_URL` or `/settings/openai` for OpenAI-compatible relay endpoints
-- `model` from `OPENAI_IMAGE_MODEL`, default `gpt-image-2`
-- `size` from `OPENAI_IMAGE_SIZE`, default `1024x1024`
-- `quality` from `OPENAI_IMAGE_QUALITY`, default `low`
-- optional `input_fidelity` from `OPENAI_IMAGE_INPUT_FIDELITY`, default `off` so relay endpoints that reject this parameter still work
-- `output_format: "png"`
-- `background: "opaque"`
-- `n: 1`
+`GPT55_BASE_URL` 默认是 `https://allin-api.com/v1`，`GPT55_MODEL` 默认是 `gpt-5.5`。Provider 使用 OpenAI-compatible chat completions，请求里用 `data:image/...;base64,...` 传入本地图片，但 base64 不写日志、不落盘。
 
-The default edit request is non-streaming. It deliberately omits `stream`, `partial_images`, and `response_format` because relay endpoints often reject or mishandle optional GPT image parameters. Responses must contain base64 image data or a downloadable image URL; otherwise the provider returns `OPENAI_IMAGE_EMPTY_RESPONSE` and does not save a fake candidate.
+`/settings/openai` 的 Provider 设置页允许用户填写 GPT5.5 Prompt Provider 配置。浏览器不直接请求模型 API，而是把配置提交给本地后端；后端只保存到服务进程 session memory。有效的 `.env` key 保持优先，删除网页 GPT5.5 key 只清除 session key，不影响环境变量 key；`GPT55_BASE_URL` 和 `GPT55_MODEL` 保存后立即作为当前服务进程的 active 配置。测试 GPT5.5 配置只做诊断，不阻断自动 prompt generation。
 
-No public image URL is needed. No tunnel is needed. `ARK_API_KEY` is not used by the image workflow. If the account cannot use `gpt-image-2`, or if organization verification, quota, or rate limits block the request, the UI shows a readable structured error and does not fallback to another model.
+Prompt generation 前只强制检查 active GPT5.5 配置是否有 key 和 model。缺 key、模型不可访问、权限不足、文本模型不支持图片输入等都作为全局配置错误返回，不写入单图 failed record。只有图片过大、MIME 不支持、单张返回坏 JSON 等图片级问题才保存为单图 failed。
+
+OpenAI Image Provider 只做最终图生图：
+
+- `OPENAI_API_KEY`
+- `OPENAI_IMAGE_MODEL=gpt-image-2`
+- `OPENAI_IMAGE_SIZE`
+- `OPENAI_IMAGE_QUALITY`
+
+OpenAI 请求继续使用非流式 `images.edit`，输入本地图片文件流和 prompt 快照。它不读取 GPT5.5 key，也不会 fallback 到 GPT5.5 文本/视觉接口。
+
+EAST 推理只属于货源/选品工作流，`EAST_REASONING_API_KEY` 不参与图片理解或图生图。
 
 ## Data Rules
 
-The backend only reads:
+`InputAssetRecord` 按输入目录中的图片生成稳定 `inputAssetId`，记录安全本地路径、mime、大小、hash 和缩略图 URL。前端只传 `inputAssetId`，后端禁止读取任意本机路径。
 
-- `~/Desktop/图片输入`
-- `~/Desktop/提示词输入`
-- `~/Desktop/图片输出`
+`ImagePromptRecord` 落盘保存到 `data/etsy-agent/prompt-records.json`，绑定 `inputAssetId`，包含 role、detectedProduct、promptText、negativePrompt、source、status、confidence、model、promptHash 和时间戳。重启服务后 generated/edited/approved 记录不丢失。
 
-Hidden files and unsupported extensions are ignored. Missing pairs, duplicate basenames, empty prompts, oversized images, unsupported MIME types, and missing files fail before generation.
+批量 prompt generation 默认只处理缺失 prompt 的图片；重新生成全部跳过 `edited` / `approved`；单张覆盖 `edited` / `approved` 必须确认。
 
-Generated candidates are saved in the local asset library with metadata: `batchId`, `itemId`, `baseName`, `inputFileName`, `promptFileName`, `provider=openai`, `model`, `size`, `quality`, `promptHash`, and `reviewStatus=pending`. Approved images are copied to the output folder and removed from the candidate library.
+空 prompt 的旧配置类 failed record 会在扫描、读取 prompt 或保存 Provider 配置时清理/忽略，避免旧 endpoint 错误把单张卡片卡死。缺失 prompt 卡片允许用户手动填写并保存为 `edited`，然后继续 OpenAI 生图。
+
+OpenAI job 和 asset 必须保存 `promptRecordId`、`promptTextSnapshot`、`negativePromptSnapshot`、`promptHash`、`inputAssetId`、`promptStatusAtGeneration`。实际生图使用 snapshot，避免后续人工改 prompt 影响已创建 job。
 
 ## Security
 
-OpenAI keys are sourced from `.env` or optional server process session memory. Base URL is sourced from `OPENAI_BASE_URL`, optional server process session memory, or the OpenAI SDK default. Input fidelity is sourced from `OPENAI_IMAGE_INPUT_FIDELITY` or optional server process session memory and defaults to `off`. The browser never stores keys in local storage or session storage, and API responses expose only configured state, masked key, fingerprint, and non-secret Base URL state.
+商品工作台的价格按批次内每个款式/尺寸行维护。人工输入人民币进货价、货类、包装、重量和尺寸后，后端按截图规则估算运费并用 `(人民币进货价 + 运费) * 5` 计算 USD/GBP；确认价格只保存行状态并导出 CSV/JSON 映射，不重命名输入图或输出图。
 
-For local development, `/settings/openai` is allowed to save a key, Base URL, and Input fidelity into server process memory by default so users can recover from placeholder `.env` values without editing files. Hosted deployments must opt in explicitly with `IMAGE_AGENT_ALLOW_WEB_KEY_CONFIG=true`; otherwise web-entered BYOK and OpenAI setting changes are blocked.
+API 响应只暴露 configured、maskedKey、fingerprint、模型名和非敏感配置。不得返回或记录 `GPT55_API_KEY`、`OPENAI_API_KEY`、`EAST_REASONING_API_KEY` 明文。不得把 key 写入 localStorage、sessionStorage、README、DESIGN、测试快照或前端源码。
+
+日志不记录图片 base64。`.env` 不提交。`.env.example` 只包含占位符。

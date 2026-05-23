@@ -1,20 +1,39 @@
 # Etsyauto 图片 Agent
 
-`/etsy-image-agent` 是当前主工作台：它读取桌面固定文件夹中的图片和提示词，用 OpenAI Images edit 批量生成候选图，再由人工逐张质检。
+`/etsy-image-agent` 是当前主工作台：它读取本地图片输入目录，用 GPT5.5 为每张图生成中文电商图生图 prompt、款式英文名和 Etsy listing 文案，人工编辑/通过后，再用 OpenAI Images edit 批量生成候选图。
 
 ## 本地文件夹
 
-应用只读取三个固定目录，不接受网页传入任意本机路径：
+默认目录：
 
 - `~/Desktop/图片输入`
-- `~/Desktop/提示词输入`
 - `~/Desktop/图片输出`
 
-图片支持 `jpg`、`jpeg`、`png`、`webp`。提示词文件必须是 `.txt`。系统按同名 basename 配对，例如 `001.jpg` 对 `001.txt`。缺图、缺提示词、重复 basename、空提示词都会在调用 OpenAI 前失败。
+也可以直接在 `/etsy-image-agent` 左侧“图片文件夹”区域填写并保存输入/输出目录；网页保存的本机路径优先于 `.env`，适合换电脑后重新配置。也可以在 `.env` 覆盖默认值：
 
-## OpenAI 配置
+```env
+IMAGE_AGENT_INPUT_DIR=/absolute/path/to/input
+IMAGE_AGENT_OUTPUT_DIR=/absolute/path/to/output
+```
 
-推荐先用 1 张、`low` quality、`1024x1024` 跑通：
+输入目录不存在会返回 `INPUT_DIR_NOT_FOUND`，前端会提示创建目录。图片支持 `jpg`、`jpeg`、`png`、`webp`。Prompt records 只依赖 `inputAssetId + ImagePromptRecord`，不再读取单独的提示词目录。
+
+## Provider 配置
+
+GPT5.5 只用于文本和视觉理解：
+
+```env
+PROMPT_PROVIDER=gpt55
+GPT55_API_KEY=your_gpt55_key_here
+GPT55_BASE_URL=https://allin-api.com/v1
+GPT55_MODEL=gpt-5.5
+GPT55_MAX_INPUT_MB=5
+GPT55_BATCH_LIMIT=10
+```
+
+默认 GPT5.5 Base URL 是 `https://allin-api.com/v1`。网页 Provider 设置页里的 GPT5.5 Key/Base URL/Model 保存后只在当前服务进程内存生效；测试按钮只做诊断，不会把 key 写入浏览器存储或本地配置文件。
+
+OpenAI 只用于最终图生图：
 
 ```env
 IMAGE_AGENT_PROVIDER=openai
@@ -26,35 +45,64 @@ OPENAI_IMAGE_QUALITY=low
 OPENAI_IMAGE_INPUT_FIDELITY=off
 OPENAI_IMAGE_MAX_INPUT_MB=20
 IMAGE_AGENT_ENABLE_REAL_GENERATION=true
-IMAGE_AGENT_ALLOW_WEB_KEY_CONFIG=true
 ```
 
-OpenAI 模式不需要 `IMAGE_AGENT_PUBLIC_BASE_URL`，不需要 cloudflared/ngrok，不需要 `ARK_API_KEY`。`gpt-image-2` 可能需要账号、组织验证、模型权限或额度；失败时应用会返回结构化错误，不自动 fallback 到其他模型，也不会伪造成功。
-
-如需使用 OpenAI 兼容中转站，可设置 `OPENAI_BASE_URL`，或在 `/settings/openai` 的 Base URL 输入框临时保存，例如 `https://api.openai.com/v1` 或你的中转站 `/v1` 地址。
-
-`OPENAI_IMAGE_INPUT_FIDELITY` 默认 `off`，表示不向 OpenAI Images edit 请求发送可选的 `input_fidelity` 参数。部分中转站或模型会拒绝这个参数；只有确认当前模型/中转站支持时，才在 `/settings/openai` 或 `.env` 中改成 `low` / `high`。
-
-OpenAI 图生图默认使用非流式 `images.edit`，只发送必要参数以提高中转站兼容性。GPT Image 正常应返回 base64 图片；如果中转站返回可下载图片 URL，应用会下载并保存到本地候选素材。如果接口返回成功但没有 base64 或可下载 URL，应用会报 `OPENAI_IMAGE_EMPTY_RESPONSE`，这通常表示该中转站没有完整支持 OpenAI Images edit。
-
-本地开发时 `/settings/openai` 可以把 OpenAI key、Base URL 和 Input fidelity 保存到当前服务进程内存，适合临时验证；key 不会写入 `.env`、`secure-config.json`、`localStorage` 或 `sessionStorage`，重启服务后会丢失。长期使用仍推荐写入 `.env`。
+`GPT55_API_KEY` 不给 OpenAI 图生图用，`OPENAI_API_KEY` 不给 GPT5.5 文本/视觉任务用，`EAST_REASONING_API_KEY` 只属于货源/选品推理，不参与图片理解或图生图。
 
 ## 工作流
 
-1. 打开 `/etsy-image-agent`，点击“扫描文件夹”确认配对。
-2. 点击“读取并生成”，系统为每个配对调用 OpenAI `images.edit`，输入本地图片文件和对应提示词。
-3. 生成结果先保存为素材库候选图，关闭程序后再打开仍可看到未审查候选。
-4. 点击“过关”会复制到 `~/Desktop/图片输出/{baseName}.png`，如重名则使用 `{baseName}-2.png`，随后删除候选素材记录和生成残留。
-5. 点击“重新生成”会删除旧候选，并只为该条重新调用 OpenAI。
-6. 开始下一批会自动清理上一批未审查候选，不删除“图片输出”里的最终文件。
+1. 打开 `/etsy-image-agent`，点击“扫描图片”登记输入图。
+2. 点击“根据图片自动生成提示词”，GPT5.5 为缺失 prompt 的图片生成 `ImagePromptRecord`；也可以在单张卡片里手动填写并保存 prompt。
+3. 在前端逐张编辑 role、prompt、negative prompt，点击“保存修改”。
+4. 点击单张卡片的“通过并生成图片”，OpenAI 立即用同一张输入图和对应 prompt 快照调用 `images.edit`；连续点击多张会并发生成，互不阻塞。
+5. 生成结果先保存为素材库候选图；点击“通过并保存到输出文件夹”复制到输出目录并清理候选记录。
+6. 在商品工作台维护图片信息配对、款式英文名和 Etsy listing 文案。
+
+Prompt records 落盘在 `data/etsy-agent/prompt-records.json`，重启 `pnpm dev` 后不会丢失。批量重新生成会跳过人工 `edited` / `approved` 的记录；单张覆盖需要二次确认。
 
 ## 页面
 
-- `/etsy-image-agent`：主工作台，桌面批量生成和人工质检。
+- `/etsy-image-agent`：主工作台，Prompt 生成、人工确认、OpenAI 生图和质检。
 - `/asset-library`：待审查候选素材库。
-- `/settings/openai`：OpenAI Provider 状态和可选的服务进程内 session key 配置。
+- `/settings/openai`：Provider 状态页，显示 GPT5.5 Prompt Provider 和 OpenAI Image Provider 的脱敏配置状态。
 
-网页不会把 OpenAI key 写入 `localStorage`、`sessionStorage`、前端源码或测试快照。API 响应只返回 `configured`、`maskedKey`、`fingerprint` 等脱敏状态。
+`/settings/openai` 也可以临时填写 `GPT55_API_KEY`、`GPT55_BASE_URL`、`GPT55_MODEL` 和 OpenAI 配置。浏览器只把这些值提交给本地后端，实际 GPT5.5 和 OpenAI 调用仍由后端完成；网页输入的 key 只保存在服务进程内存，重启后丢失。有效的 `.env` key 优先于网页 session key。
+
+网页不会把任何 key 写入 `localStorage`、`sessionStorage`、前端源码或测试快照。API 响应只返回 `configured`、`maskedKey`、`fingerprint` 等脱敏状态，日志不记录图片 base64。
+
+## CLI 启动器和 Windows exe
+
+本项目提供一个轻量 CLI 启动器：启动本地后端服务，然后自动打开浏览器里的 `/etsy-image-agent` 工作台。用户仍然在网页工作台里选择图片输入/输出文件夹、配置 Provider、审核 prompt、审核图片和编辑文案。
+
+本地开发启动：
+
+```bash
+pnpm desktop:dev
+```
+
+常用参数：
+
+```bash
+pnpm desktop:dev -- --port 0
+pnpm desktop:dev -- --no-open --port 3456
+```
+
+Windows 打包在 Windows 电脑或 Windows CI 上执行：
+
+```bash
+pnpm install
+pnpm package:win
+```
+
+打包产物：
+
+```text
+dist/win/Etsyauto.exe
+```
+
+Windows 用户双击 `Etsyauto.exe` 后，会打开一个命令行窗口并启动浏览器工作台。关闭该命令行窗口即可停止本地服务。桌面版默认把本机数据写到 `%APPDATA%/Etsyauto/data`，把素材缓存写到 `%APPDATA%/Etsyauto/storage`；图片输入和图片输出目录仍然由用户在网页左侧“图片文件夹”里选择并保存。
+
+不要把你的 GPT5.5 或 OpenAI API Key 打进 `.exe`。发送给别人使用时，让对方在 `/settings/openai` 页面填写自己的 Key；网页提交给本地服务后只保存在服务进程内存，重启程序后需要重新填写，除非对方自己维护本机 `.env`。
 
 ## 验证
 
@@ -63,4 +111,5 @@ pnpm typecheck
 pnpm test
 pnpm build
 pnpm verify:local
+pnpm build:cli
 ```

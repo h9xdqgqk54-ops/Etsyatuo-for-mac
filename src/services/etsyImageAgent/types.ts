@@ -17,7 +17,11 @@ export type EtsyAgentTaskStatus =
 
 export type ImageJobStatus = "queued" | "running" | "cancel_requested" | "completed" | "failed" | "cancelled";
 export type ImageProviderId = "openai";
+export type PromptProviderId = "gpt55" | "doubao";
 export type ImageGenerationMode = "text_to_image" | "product_reference";
+export type ImagePromptRole = "main" | "secondary" | "detail" | "lifestyle";
+export type ImagePromptStatus = "generated" | "edited" | "approved" | "failed";
+export type ProductListingStatus = "generated" | "edited" | "approved" | "failed";
 export type ShotType =
   | "hero_white_background"
   | "angled_view"
@@ -44,6 +48,100 @@ export interface UploadedImage {
   hash: string;
   perceptualKey: string;
   createdAt: string;
+}
+
+export interface InputAssetRecord {
+  inputAssetId: string;
+  displayName: string;
+  baseName: string;
+  fileName: string;
+  filePath: string;
+  mimeType: string;
+  sizeBytes: number;
+  hash: string;
+  publicUrl: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ImagePromptRecord {
+  id: string;
+  inputAssetId: string;
+  productGroupId: string;
+  role: ImagePromptRole;
+  detectedProduct: string;
+  promptText: string;
+  negativePrompt: string;
+  source: "gpt55-vision" | "doubao-vision";
+  status: ImagePromptStatus;
+  confidence: number;
+  model: string;
+  promptHash: string;
+  createdAt: string;
+  updatedAt: string;
+  error?: string | ImagePromptErrorDetails;
+  providerTraceId?: string;
+  promptProviderRequestId?: string;
+  doubaoRequestId?: string;
+}
+
+export interface ImagePromptErrorDetails {
+  code: string;
+  message: string;
+  provider?: "gpt55" | "doubao";
+  model?: string;
+  requestId?: string;
+  statusCode?: number;
+  reason?: string;
+}
+
+export interface ProductListingRecord {
+  listingId: string;
+  batchId: string;
+  title: string;
+  description: string;
+  colors: string;
+  sizeInfo: string;
+  materials: string;
+  keywords: string[];
+  status: ProductListingStatus;
+  model: string;
+  promptProviderRequestId?: string;
+  doubaoRequestId?: string;
+  providerTraceId?: string;
+  outputFilePath: string;
+  createdAt: string;
+  updatedAt: string;
+  error?: ImagePromptErrorDetails;
+}
+
+export type ProductWorkbenchStatus = "draft" | "listing_generated" | "confirmed";
+export type ProductWorkbenchImageMetaSource = "csv" | "gpt55" | "doubao" | "manual" | "mixed";
+
+export interface ProductWorkbenchImageMeta {
+  itemId: string;
+  inputFileName: string;
+  outputFileName: string;
+  outputFilePath: string;
+  publicUrl?: string;
+  color: string;
+  size: string;
+  material: string;
+  note: string;
+  styleNameEn: string;
+  styleNameSource?: ProductWorkbenchImageMetaSource;
+  styleNameUpdatedAt?: string;
+  source: ProductWorkbenchImageMetaSource;
+  updatedAt: string;
+}
+
+export interface ProductWorkbenchRecord {
+  batchId: string;
+  status: ProductWorkbenchStatus;
+  imageMetas: ProductWorkbenchImageMeta[];
+  listing?: ProductListingRecord;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ProductGroup {
@@ -117,6 +215,11 @@ export interface AssetRecord {
   preserveProduct?: boolean;
   usedReferenceImage?: boolean;
   promptHash?: string;
+  promptRecordId?: string;
+  promptTextSnapshot?: string;
+  negativePromptSnapshot?: string;
+  inputAssetId?: string;
+  promptStatusAtGeneration?: ImagePromptStatus;
   providerTraceId?: string;
   openaiRequestId?: string;
   model: string;
@@ -162,6 +265,11 @@ export interface ImageGenerationJob {
   resolvedReferenceImageUrls: string[];
   usedReferenceImage: boolean;
   promptHash?: string;
+  promptRecordId?: string;
+  promptTextSnapshot?: string;
+  negativePromptSnapshot?: string;
+  inputAssetId?: string;
+  promptStatusAtGeneration?: ImagePromptStatus;
   providerTraceId?: string;
   openaiRequestId?: string;
   preserveProduct: boolean;

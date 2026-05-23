@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import OpenAI, { toFile } from "openai";
 import { isRegisteredMediaPath } from "../assetLibrary.js";
 import { etsyAgentConfig } from "../config.js";
 import { fetchWithTimeout, readResponseBufferLimited } from "../httpUtils.js";
@@ -72,7 +73,6 @@ export async function generateOpenAIImageEditFromFile(input: OpenAIImageEditFile
     perceptualKey: "",
     createdAt: "",
   }, input.requireRegisteredMediaPath ?? true);
-  const { default: OpenAI, toFile } = await import("openai");
   const client = createOpenAIClient(OpenAI, input.settings.apiKey, input.settings.baseURL);
   let requestId: string | undefined;
   try {
@@ -256,7 +256,6 @@ async function generateOpenAITextImage(prompt: string, outputPath: string, setti
   imageQuality?: string;
 }): Promise<GenerateImageResult> {
   assertRealProviderAllowed("OpenAI", settings);
-  const { default: OpenAI } = await import("openai");
   const client = createOpenAIClient(OpenAI, settings.apiKey, settings.baseURL);
   const genResult = await client.images.generate({
     model: settings.model,

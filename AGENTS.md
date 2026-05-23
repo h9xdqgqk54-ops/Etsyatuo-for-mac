@@ -1,20 +1,18 @@
-# Codex instructions for Etsyauto
+# Codex Project Instructions
 
-Before editing files, read CODEX_HANDOFF.md and summarize the active task in 5 bullets.
+## Persistent context
+At the start of every session, read CODEX_HANDOFF.md if it exists.
 
-Hard rules:
-- Work only inside this repository.
-- Do not create a sibling project.
-- Do not commit unless explicitly asked.
-- Do not write, print, or expose any real API key.
-- Do not read or print .env lines containing ARK_API_KEY, OPENAI_API_KEY, or EAST_REASONING_API_KEY.
-- API responses may only expose configured status, maskedKey, and fingerprint.
+## Workflow
+- First inspect repository state with git status and git diff.
+- Summarize current state before making changes.
+- Prefer minimal, reversible changes.
+- After each change, run the narrowest relevant test first.
+- Do not perform broad refactors unless explicitly requested.
 
-Current focus:
-Fix local Doubao product_reference image generation.
-Do not work on Vercel.
-Fix Cloudflare Tunnel public reference image handling, preflight checks, and beginner-friendly UI errors.
-
-Verification:
-Run pnpm typecheck, pnpm test, pnpm build, and pnpm verify:local when possible.
-If a command fails, report the exact failure.
+## Failure handling
+If blocked, stop and report:
+- what was attempted
+- exact command output or error
+- current hypothesis
+- what input is needed from the user

@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { etsyAgentConfig } from "./config.js";
+import { isRegisteredInputAssetPath } from "./inputAssetRegistry.js";
 import { listGroupSessions } from "./groupSessionStore.js";
 import type { AssetRecord, EtsyAgentTask } from "./types.js";
 import { ensureDir } from "./utils.js";
@@ -63,6 +64,7 @@ export function findTask(taskId: string): EtsyAgentTask | undefined {
 
 export function isRegisteredMediaPath(filePath: string): boolean {
   const resolved = path.resolve(filePath);
+  if (isRegisteredInputAssetPath(resolved)) return true;
   if (listAssets().some((asset) => path.resolve(asset.generatedFilePath) === resolved)) return true;
   if (listTasks().some((task) =>
     task.groups.some((group) =>

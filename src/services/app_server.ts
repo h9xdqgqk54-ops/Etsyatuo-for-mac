@@ -17,14 +17,13 @@ import { fileURLToPath } from "node:url";
 import csvParser from "csv-parser";
 import dotenv from "dotenv";
 import { handleEtsyAgentRoute, tryServeEtsyMedia } from "./etsyImageAgent/apiRouter.js";
-import { matchByImage } from "./matcher1688/image_search.js";
 
 dotenv.config();
 
 // ── Config ───────────────────────────────────────────────────
 
-const PORT = 3456;
-const PUBLIC_DIR = path.resolve("public");
+export const DEFAULT_PORT = 3456;
+const PUBLIC_DIR = resolvePublicDir();
 
 const IMAGE2_KEY = process.env.IMAGE2_API_KEY ?? "";
 const DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY ?? "";
@@ -260,6 +259,7 @@ async function runMatching(selectedProducts: EtsyProduct[]): Promise<Match1688[]
     if (USE_IMAGE_SEARCH && p.url) {
       console.log(`\n[image-search] Searching for: ${p.title.slice(0, 60)}...`);
       const imageSource = p.etsyImageUrl || p.url;
+      const { matchByImage } = await import("./matcher1688/image_search.js");
       const searchResults = await matchByImage(imageSource, p.title, i);
 
       if (searchResults.length > 0) {
@@ -726,21 +726,119 @@ export function createEtsyautoServer(): http.Server {
   });
 }
 
-function startLocalServer(): void {
+export interface ListenEtsyautoServerOptions {
+  host?: string;
+  port?: number;
+  log?: boolean;
+}
+
+export interface ListeningEtsyautoServer {
+  server: http.Server;
+  host: string;
+  port: number;
+  url: string;
+  close: () => Promise<void>;
+}
+
+export function listenEtsyautoServer(options: ListenEtsyautoServerOptions = {}): Promise<ListeningEtsyautoServer> {
+  const port = options.port ?? DEFAULT_PORT;
+  const host = options.host;
+  const log = options.log ?? true;
   const server = createEtsyautoServer();
-  server.listen(PORT, () => {
-    console.log("");
-    console.log("╔══════════════════════════════════════════════╗");
-    console.log("║   Etsy → 1688 Workflow Platform             ║");
-    console.log("╚══════════════════════════════════════════════╝");
-    console.log("");
-    console.log(`   Open:  http://localhost:${PORT}`);
-    console.log(`   IMAGE2:  ${IMAGE2_KEY ? "configured" : "not set"}`);
-    console.log(`   DEEPSEEK: ${DEEPSEEK_KEY ? "configured" : "not set"}`);
-    console.log("");
+  (globalThis as unknown as { __etsyautoServer?: http.Server }).__etsyautoServer = server;
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const onError = (error: NodeJS.ErrnoException) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+    server.once("error", onError);
+    const onListening = () => {
+      if (settled) return;
+      settled = true;
+      server.off("error", onError);
+      const address = server.address();
+      const actualPort = typeof address === "object" && address ? address.port : port;
+      const displayHost = host && host !== "0.0.0.0" ? host : "localhost";
+      const url = `http://${displayHost}:${actualPort}`;
+      if (log) logStartup(url);
+      resolve({
+        server,
+        host: displayHost,
+        port: actualPort,
+        url,
+        close: () => new Promise<void>((closeResolve, closeReject) => {
+          server.close((error) => {
+            if (error) closeReject(error);
+            else closeResolve();
+          });
+        }),
+      });
+    };
+    if (host) server.listen(port, host, onListening);
+    else server.listen(port, onListening);
   });
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+function startLocalServer(): void {
+  listenEtsyautoServer({ port: DEFAULT_PORT }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "EADDRINUSE") {
+      console.error(`Port ${DEFAULT_PORT} is already in use. Stop the existing Etsyauto dev server before starting another one.`);
+      process.exitCode = 1;
+      return;
+    }
+    console.error("Server listen error:", error.message);
+    process.exitCode = 1;
+  });
+}
+
+function logStartup(url: string): void {
+  console.log("");
+  console.log("╔══════════════════════════════════════════════╗");
+  console.log("║   Etsy → 1688 Workflow Platform             ║");
+  console.log("╚══════════════════════════════════════════════╝");
+  console.log("");
+  console.log(`   Open:  ${url}`);
+  console.log(`   IMAGE2:  ${IMAGE2_KEY ? "configured" : "not set"}`);
+  console.log(`   DEEPSEEK: ${DEEPSEEK_KEY ? "configured" : "not set"}`);
+  console.log("");
+}
+
+if (isDirectAppServerRun()) {
   startLocalServer();
+}
+
+function isDirectAppServerRun(): boolean {
+  if (!process.argv[1]) return false;
+  try {
+    return path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
+}
+
+function resolvePublicDir(): string {
+  const candidates = [
+    process.env.ETSYAUTO_PUBLIC_DIR,
+    path.resolve("public"),
+    moduleRelativePublicDir(),
+    packageEntrypointPublicDir(),
+    path.resolve(path.dirname(process.execPath), "public"),
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? path.resolve("public");
+}
+
+function moduleRelativePublicDir(): string | undefined {
+  try {
+    return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../public");
+  } catch {
+    return undefined;
+  }
+}
+
+function packageEntrypointPublicDir(): string | undefined {
+  const entrypoint = (process as unknown as { pkg?: { entrypoint?: string } }).pkg?.entrypoint;
+  return entrypoint ? path.resolve(path.dirname(entrypoint), "../../public") : undefined;
 }

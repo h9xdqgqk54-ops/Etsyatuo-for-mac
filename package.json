@@ -5,9 +5,12 @@
   "main": "index.js",
   "scripts": {
     "dev": "tsx src/services/app_server.ts",
+    "desktop:dev": "tsx src/cli/launcher.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "build": "tsc -p tsconfig.json --noEmit",
+    "build:cli": "node scripts/build-cli.mjs",
+    "package:win": "pnpm build:cli && node scripts/package-win-cli.mjs",
     "verify:local": "tsx scripts/verify-local.ts",
     "package:source": "node scripts/package-source.mjs"
   },
@@ -27,6 +30,13 @@
       "sharp"
     ]
   },
+  "pkg": {
+    "assets": [
+      "public/**/*",
+      "node_modules/sharp/**/*",
+      "node_modules/@img/**/*"
+    ]
+  },
   "type": "module",
   "dependencies": {
     "@vercel/blob": "^2.3.3",
@@ -42,9 +52,13 @@
     "undici": "^8.3.0"
   },
   "devDependencies": {
+    "@img/sharp-libvips-win32-x64": "1.2.4",
+    "@img/sharp-win32-x64": "0.34.5",
     "@types/archiver": "^7.0.0",
     "@types/node": "^25.7.0",
     "@types/prompts": "^2.4.9",
+    "@yao-pkg/pkg": "^6.19.0",
+    "esbuild": "^0.28.0",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.6"
