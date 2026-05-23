@@ -1,12 +1,11 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { etsyAgentConfig } from "./config.js";
 import { findInputAsset, requireInputAsset, scanInputAssets } from "./inputAssetRegistry.js";
+import { readJsonFile, writeJsonFile } from "./jsonFile.js";
 import { gpt55PromptProvider } from "./promptProviders/gpt55PromptProvider.js";
 import { getEffectiveGpt55PromptSettings, sanitizeProviderError } from "./secureConfig.js";
 import { isStructuredError, structuredError } from "./structuredErrors.js";
 import type { ImagePromptErrorDetails, ImagePromptRecord, ImagePromptRole, ImagePromptStatus, InputAssetRecord } from "./types.js";
-import { ensureDir, hashBuffer, makeId, nowIso } from "./utils.js";
+import { hashBuffer, makeId, nowIso } from "./utils.js";
 
 export interface GeneratePromptsInput {
   assetIds?: string[];
@@ -64,9 +63,10 @@ export async function generatePromptsFromImages(input: GeneratePromptsInput = {}
   }) : scan.assets);
 
   const records = readPromptRecords();
-  const toGenerate: InputAssetRecord[] = [];
+  const toGenerate: Array<{ asset: InputAssetRecord; roleHint: ImagePromptRole }> = [];
   const skipped: GeneratePromptsResult["skipped"] = [];
-  for (const asset of selectedAssets) {
+  for (let selectedIndex = 0; selectedIndex < selectedAssets.length; selectedIndex += 1) {
+    const asset = selectedAssets[selectedIndex]!;
     const existing = newestRecordForAsset(records, asset.inputAssetId);
     if (existing?.status === "edited" || existing?.status === "approved") {
       skipped.push({ inputAssetId: asset.inputAssetId, reason: "manual_prompt_preserved", status: existing.status });
@@ -76,7 +76,7 @@ export async function generatePromptsFromImages(input: GeneratePromptsInput = {}
       skipped.push({ inputAssetId: asset.inputAssetId, reason: "prompt_already_generated", status: existing.status });
       continue;
     }
-    toGenerate.push(asset);
+    toGenerate.push({ asset, roleHint: input.roles?.[selectedIndex] ?? "main" });
   }
 
   if (toGenerate.length > etsyAgentConfig.gpt55BatchLimit) {
@@ -91,9 +91,7 @@ export async function generatePromptsFromImages(input: GeneratePromptsInput = {}
 
   const generated: ImagePromptRecord[] = [];
   const failed: ImagePromptRecord[] = [];
-  for (let index = 0; index < toGenerate.length; index += 1) {
-    const asset = toGenerate[index]!;
-    const roleHint = input.roles?.[index] ?? "main";
+  for (const { asset, roleHint } of toGenerate) {
     const existing = newestRecordForAsset(records, asset.inputAssetId);
     try {
       const providerResult = await gpt55PromptProvider.generatePrompt({
@@ -125,7 +123,10 @@ export async function generatePromptsFromImages(input: GeneratePromptsInput = {}
       upsertPromptRecord(records, record);
       generated.push(record);
     } catch (error) {
-      if (isPromptProviderConfigurationError(error)) throw error;
+      if (isPromptProviderConfigurationError(error)) {
+        writePromptRecords(records);
+        throw error;
+      }
       const record = failedPromptRecord(asset, input.productGroupId ?? asset.inputAssetId, roleHint, existing, error);
       upsertPromptRecord(records, record);
       failed.push(record);
@@ -258,15 +259,11 @@ function isStalePromptProviderFailure(record: ImagePromptRecord): boolean {
 
 const STALE_PROMPT_PROVIDER_FAILURE_CODES = new Set([
   "GPT55_MODEL_NOT_ACCESSIBLE",
-  "GPT55_MODEL_NOT_ACCESSIBLE",
   "GPT55_VISION_NOT_SUPPORTED",
-  "GPT55_MODEL_NOT_ACCESSIBLE",
-  "GPT55_MODEL_NOT_ACCESSIBLE",
   "GPT55_CONFIG_VALIDATION_FAILED",
   "GPT55_API_KEY_MISSING",
   "GPT55_AUTH_FAILED",
   "GPT55_PERMISSION_DENIED",
-  "GPT55_CONFIG_VALIDATION_FAILED",
 ]);
 
 const PROMPT_PROVIDER_CONFIGURATION_ERROR_CODES = new Set([
@@ -275,12 +272,7 @@ const PROMPT_PROVIDER_CONFIGURATION_ERROR_CODES = new Set([
   "GPT55_MODEL_NOT_ACCESSIBLE",
   "GPT55_AUTH_FAILED",
   "GPT55_PERMISSION_DENIED",
-  "GPT55_MODEL_NOT_ACCESSIBLE",
-  "GPT55_MODEL_NOT_ACCESSIBLE",
   "GPT55_VISION_NOT_SUPPORTED",
-  "GPT55_MODEL_NOT_ACCESSIBLE",
-  "GPT55_MODEL_NOT_ACCESSIBLE",
-  "GPT55_CONFIG_VALIDATION_FAILED",
   "GPT55_CONFIG_VALIDATION_FAILED",
   "GPT55_INPUT_METHOD_UNSUPPORTED",
 ]);
@@ -385,14 +377,9 @@ function promptAssetFallback(record: ImagePromptRecord): InputAssetRecord {
 }
 
 function readPromptRecords(): ImagePromptRecord[] {
-  try {
-    return JSON.parse(fs.readFileSync(etsyAgentConfig.promptRecordsPath, "utf-8")) as ImagePromptRecord[];
-  } catch {
-    return [];
-  }
+  return readJsonFile<ImagePromptRecord[]>(etsyAgentConfig.promptRecordsPath, []);
 }
 
 function writePromptRecords(records: ImagePromptRecord[]): void {
-  ensureDir(path.dirname(etsyAgentConfig.promptRecordsPath));
-  fs.writeFileSync(etsyAgentConfig.promptRecordsPath, JSON.stringify(records, null, 2), "utf-8");
+  writeJsonFile(etsyAgentConfig.promptRecordsPath, records);
 }

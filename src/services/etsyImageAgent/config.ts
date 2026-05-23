@@ -49,7 +49,6 @@ function configuredDir(name: string, fallback: string): string {
 }
 
 export const etsyAgentConfig = {
-  envOpenaiApiKey: process.env.OPENAI_API_KEY ?? "",
   envGpt55ApiKey: process.env.GPT55_API_KEY ?? "",
   envArkApiKey: process.env.ARK_API_KEY ?? "",
   eastReasoningApiKeyConfigured: Boolean(process.env.EAST_REASONING_API_KEY),
@@ -108,6 +107,16 @@ export function publicUrlForStoragePath(filePath: string): string {
 }
 
 export function storagePathFromPublicUrl(url: string): string {
-  const rel = decodeURIComponent(url.replace(etsyAgentConfig.publicMediaPrefix, "").replace(/^\/+/, ""));
-  return path.resolve(etsyAgentConfig.storageRoot, rel);
+  const prefix = etsyAgentConfig.publicMediaPrefix;
+  if (url !== prefix && !url.startsWith(`${prefix}/`)) {
+    throw new Error("Unsafe media path: URL is outside public media prefix");
+  }
+  const rel = decodeURIComponent(url.slice(prefix.length).replace(/^\/+/, ""));
+  const storageRoot = path.resolve(etsyAgentConfig.storageRoot);
+  const resolved = path.resolve(storageRoot, rel);
+  const relative = path.relative(storageRoot, resolved);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error("Unsafe media path: resolved path is outside storage root");
+  }
+  return resolved;
 }

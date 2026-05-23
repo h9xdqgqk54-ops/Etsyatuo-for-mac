@@ -239,7 +239,9 @@ describe("desktop batch workflow", () => {
     expect(assets[0]?.promptHash).toBeTruthy();
     expect(assets[0]?.providerQuality).toBe("low");
 
-    const approved = workflow.approveDesktopBatchItem(done.items[0]!.itemId);
+    expect(assets[0]?.optimizedPrompt).toContain("Use the uploaded reference image as the source image.");
+
+    const approved = await workflow.approveDesktopBatchItem(done.items[0]!.itemId);
     const outputPath = path.join(root, "图片输出", "001.png");
     expect(approved.items[0]?.status).toBe("approved");
     expect(fs.existsSync(outputPath)).toBe(true);

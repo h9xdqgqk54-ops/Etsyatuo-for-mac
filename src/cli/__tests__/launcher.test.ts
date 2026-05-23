@@ -1,6 +1,10 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  applySidecarNodeModuleResolution,
+  buildSidecarNodeModulesPath,
   buildBrowserOpenCommand,
   buildPortableEnvironment,
   parseLauncherArgs,
@@ -67,5 +71,32 @@ describe("CLI launcher", () => {
       args: ["http://127.0.0.1:3456/etsy-image-agent"],
       command: "xdg-open",
     });
+  });
+
+  it("adds the exe sidecar node_modules directory to module resolution when packaged", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "etsyauto-launcher-"));
+    const sidecarNodeModules = path.join(tempDir, "node_modules");
+    fs.mkdirSync(sidecarNodeModules);
+
+    const env: NodeJS.ProcessEnv = { NODE_PATH: "C:\\existing\\node_modules" };
+    const globalPaths: string[] = [];
+    let initPathsCalled = false;
+
+    const applied = applySidecarNodeModuleResolution({
+      env,
+      execPath: path.join(tempDir, "Etsyauto.exe"),
+      isPkg: true,
+      moduleGlobalPaths: globalPaths,
+      platform: "win32",
+      initPaths: () => {
+        initPathsCalled = true;
+      },
+    });
+
+    expect(buildSidecarNodeModulesPath(path.join(tempDir, "Etsyauto.exe"))).toBe(sidecarNodeModules);
+    expect(applied).toBe(sidecarNodeModules);
+    expect(env.NODE_PATH?.split(";")[0]).toBe(sidecarNodeModules);
+    expect(globalPaths[0]).toBe(sidecarNodeModules);
+    expect(initPathsCalled).toBe(true);
   });
 });

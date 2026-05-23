@@ -1,12 +1,13 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import sharp from "sharp";
 import { etsyAgentConfig } from "./config.js";
 import { getDesktopBatchById, type PublicDesktopBatch } from "./desktopBatchWorkflow.js";
+import { readJsonFile, writeJsonFile } from "./jsonFile.js";
 import { gpt55PromptProvider } from "./promptProviders/gpt55PromptProvider.js";
 import type { ListingCopyImageInput, ListingCopyImageMetaInput } from "./promptProviders/types.js";
 import { getProductWorkbench } from "./productWorkbenchService.js";
 import { getEffectiveGpt55PromptSettings } from "./secureConfig.js";
+import { loadSharp } from "./sharpRuntime.js";
 import { isStructuredError, structuredError } from "./structuredErrors.js";
 import type { ImagePromptErrorDetails, ProductListingRecord, ProductListingStatus } from "./types.js";
 import { ensureDir, makeId, nowIso, slugify } from "./utils.js";
@@ -187,6 +188,7 @@ async function prepareListingImagesForGpt55(batchId: string, images: ListingCopy
   const maxBytes = settings.maxInputMb * 1024 * 1024;
   const targetDir = path.join(etsyAgentConfig.dataRoot, "listing-inputs", slugify(batchId, "batch"));
   ensureDir(targetDir);
+  const sharp = await loadSharp();
   return Promise.all(images.map(async (image, index) => {
     const baseName = slugify(path.parse(image.fileName).name, `image-${index + 1}`);
     const preparedPath = path.join(targetDir, `${String(index + 1).padStart(2, "0")}-${baseName}.jpg`);
@@ -298,16 +300,11 @@ function upsertListingRecord(record: ProductListingRecord): void {
 }
 
 function readListingRecords(): ProductListingRecord[] {
-  try {
-    return JSON.parse(fs.readFileSync(listingRecordsFile, "utf-8")) as ProductListingRecord[];
-  } catch {
-    return [];
-  }
+  return readJsonFile<ProductListingRecord[]>(listingRecordsFile, []);
 }
 
 function writeListingRecords(records: ProductListingRecord[]): void {
-  ensureDir(path.dirname(listingRecordsFile));
-  fs.writeFileSync(listingRecordsFile, JSON.stringify(records, null, 2), "utf-8");
+  writeJsonFile(listingRecordsFile, records);
 }
 
 export function listingErrorDetails(error: unknown): ImagePromptErrorDetails {

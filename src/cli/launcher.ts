@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import * as nodeModule from "node:module";
 
 export interface LauncherArgs {
   host: string;
@@ -19,6 +20,15 @@ export interface PortableEnvironmentOptions {
 export interface BrowserOpenCommand {
   args: string[];
   command: string;
+}
+
+export interface SidecarNodeModuleResolutionOptions {
+  env?: NodeJS.ProcessEnv;
+  execPath?: string;
+  initPaths?: () => void;
+  isPkg?: boolean;
+  moduleGlobalPaths?: string[];
+  platform?: NodeJS.Platform;
 }
 
 export function parseLauncherArgs(argv: string[]): LauncherArgs {
@@ -103,6 +113,35 @@ export function openBrowser(url: string, platform: NodeJS.Platform = process.pla
   child.unref();
 }
 
+export function buildSidecarNodeModulesPath(execPath = process.execPath): string {
+  return path.join(path.dirname(execPath), "node_modules");
+}
+
+export function applySidecarNodeModuleResolution(options: SidecarNodeModuleResolutionOptions = {}): string | undefined {
+  const isPkg = options.isPkg ?? Boolean((process as unknown as { pkg?: unknown }).pkg);
+  if (!isPkg) return undefined;
+
+  const sidecarNodeModules = buildSidecarNodeModulesPath(options.execPath ?? process.execPath);
+  if (!fs.existsSync(sidecarNodeModules)) return undefined;
+
+  const env = options.env ?? process.env;
+  const delimiter = options.platform === "win32" ? ";" : path.delimiter;
+  const existingNodePaths = (env.NODE_PATH ?? "").split(delimiter).filter(Boolean);
+  if (!existingNodePaths.includes(sidecarNodeModules)) {
+    env.NODE_PATH = [sidecarNodeModules, ...existingNodePaths].join(delimiter);
+  }
+
+  const moduleRuntime = nodeModule as unknown as { globalPaths: string[]; _initPaths?: () => void };
+  const moduleGlobalPaths = options.moduleGlobalPaths ?? moduleRuntime.globalPaths;
+  if (!moduleGlobalPaths.includes(sidecarNodeModules)) {
+    moduleGlobalPaths.unshift(sidecarNodeModules);
+  }
+
+  const initPaths = options.initPaths ?? (() => moduleRuntime._initPaths?.());
+  initPaths();
+  return sidecarNodeModules;
+}
+
 export function helpText(): string {
   return [
     "Etsyauto CLI Launcher",
@@ -126,6 +165,7 @@ export async function runCliLauncher(argv = process.argv.slice(2)): Promise<void
   }
 
   const portable = applyPortableEnvironment();
+  applySidecarNodeModuleResolution();
   const { listenEtsyautoServer } = await import("../services/app_server.js");
   const listening = await listenEtsyautoServer({ host: args.host, port: args.port, log: false });
   const workbenchUrl = `${listening.url}/etsy-image-agent`;

@@ -1,8 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { etsyAgentConfig } from "./config.js";
+import { readJsonFile, writeJsonFile } from "./jsonFile.js";
 import { structuredError } from "./structuredErrors.js";
-import { ensureDir } from "./utils.js";
 
 export type FolderSettingSource = "saved" | "env" | "default";
 
@@ -39,8 +39,7 @@ export function saveImageAgentFolderSettings(input: { inputDir?: string; outputD
   const outputDir = path.resolve(requireFolderPath(input.outputDir, "outputDir"));
   validateDirectory(inputDir, "input");
   validateDirectory(outputDir, "output");
-  ensureDir(path.dirname(etsyAgentConfig.folderSettingsPath));
-  fs.writeFileSync(etsyAgentConfig.folderSettingsPath, JSON.stringify({ inputDir, outputDir }, null, 2), "utf-8");
+  writeJsonFile(etsyAgentConfig.folderSettingsPath, { inputDir, outputDir });
   return getImageAgentFolderSettings();
 }
 
@@ -77,9 +76,5 @@ function normalizePathValue(value: unknown): string | undefined {
 }
 
 function readSavedFolderSettings(): SavedFolderSettings {
-  try {
-    return JSON.parse(fs.readFileSync(etsyAgentConfig.folderSettingsPath, "utf-8")) as SavedFolderSettings;
-  } catch {
-    return {};
-  }
+  return readJsonFile<SavedFolderSettings>(etsyAgentConfig.folderSettingsPath, {});
 }

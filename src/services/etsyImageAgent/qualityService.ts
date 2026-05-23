@@ -1,10 +1,11 @@
 import * as fs from "node:fs";
-import sharp from "sharp";
+import { loadSharp } from "./sharpRuntime.js";
 import type { AssetRecord, QualityResult } from "./types.js";
 
 export async function checkGeneratedImageQuality(filePath: string, prompt: string, existing: AssetRecord[]): Promise<QualityResult> {
   if (!fs.existsSync(filePath)) return { status: "fail", reason: "生成文件不存在。" };
   try {
+    const sharp = await loadSharp();
     const meta = await sharp(filePath).metadata();
     if (!meta.width || !meta.height) return { status: "fail", reason: "无法读取图片尺寸。" };
     if (Math.abs(meta.width - meta.height) > 2) return { status: "fail", reason: "图片不是 1:1 正方形。" };

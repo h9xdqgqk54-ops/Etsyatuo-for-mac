@@ -1,11 +1,12 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import sharp from "sharp";
 import { etsyAgentConfig } from "./config.js";
 import { getDesktopBatchById, type PublicDesktopBatch, type PublicDesktopBatchItem } from "./desktopBatchWorkflow.js";
+import { readJsonFile, writeJsonFile } from "./jsonFile.js";
 import { gpt55PromptProvider } from "./promptProviders/gpt55PromptProvider.js";
 import type { StyleNameImageInput } from "./promptProviders/types.js";
 import { getEffectiveGpt55PromptSettings } from "./secureConfig.js";
+import { loadSharp } from "./sharpRuntime.js";
 import { structuredError } from "./structuredErrors.js";
 import type { ProductWorkbenchImageMeta, ProductWorkbenchRecord, ProductWorkbenchStatus } from "./types.js";
 import { ensureDir, nowIso, slugify } from "./utils.js";
@@ -164,6 +165,7 @@ async function prepareWorkbenchImagesForGpt55(batchId: string, items: PublicDesk
   const maxBytes = settings.maxInputMb * 1024 * 1024;
   const targetDir = path.join(etsyAgentConfig.dataRoot, "workbench-vision-inputs", purpose, slugify(batchId, "batch"));
   ensureDir(targetDir);
+  const sharp = await loadSharp();
   return Promise.all(items.map(async (item, index) => {
     const sourcePath = item.outputFilePath!;
     const baseName = slugify(path.parse(item.outputFileName || item.inputFileName).name, `image-${index + 1}`);
@@ -269,22 +271,17 @@ function upsertWorkbenchRecord(record: ProductWorkbenchRecord): void {
 }
 
 function readWorkbenchRecords(): ProductWorkbenchRecord[] {
-  try {
-    const raw = JSON.parse(fs.readFileSync(workbenchRecordsFile, "utf-8")) as ProductWorkbenchRecord[];
-    return raw.map((record) => ({
-      batchId: record.batchId,
-      status: workbenchStatus(record.status),
-      imageMetas: Array.isArray(record.imageMetas) ? record.imageMetas : [],
-      listing: record.listing,
-      createdAt: record.createdAt,
-      updatedAt: record.updatedAt,
-    }));
-  } catch {
-    return [];
-  }
+  const raw = readJsonFile<ProductWorkbenchRecord[]>(workbenchRecordsFile, []);
+  return raw.map((record) => ({
+    batchId: record.batchId,
+    status: workbenchStatus(record.status),
+    imageMetas: Array.isArray(record.imageMetas) ? record.imageMetas : [],
+    listing: record.listing,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  }));
 }
 
 function writeWorkbenchRecords(records: ProductWorkbenchRecord[]): void {
-  ensureDir(path.dirname(workbenchRecordsFile));
-  fs.writeFileSync(workbenchRecordsFile, JSON.stringify(records, null, 2), "utf-8");
+  writeJsonFile(workbenchRecordsFile, records);
 }

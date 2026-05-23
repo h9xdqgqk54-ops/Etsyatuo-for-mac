@@ -259,7 +259,7 @@ export async function handleEtsyAgentRoute(req: http.IncomingMessage, res: http.
 
     const desktopApproveMatch = pathname.match(/^\/api\/etsy-agent\/desktop-batch\/items\/([^/]+)\/approve$/);
     if (method === "POST" && desktopApproveMatch) {
-      return json(res, 200, { ok: true, data: approveDesktopBatchItem(desktopApproveMatch[1]!) });
+      return json(res, 200, { ok: true, data: await approveDesktopBatchItem(desktopApproveMatch[1]!) });
     }
 
     const desktopRegenerateMatch = pathname.match(/^\/api\/etsy-agent\/desktop-batch\/items\/([^/]+)\/regenerate$/);
@@ -417,7 +417,8 @@ export async function handleEtsyAgentRoute(req: http.IncomingMessage, res: http.
 
 export function tryServeEtsyMedia(req: http.IncomingMessage, res: http.ServerResponse): boolean {
   const rawUrl = req.url ?? "/";
-  if (!rawUrl.startsWith(etsyAgentConfig.publicMediaPrefix)) return false;
+  const mediaPrefix = etsyAgentConfig.publicMediaPrefix;
+  if (rawUrl !== mediaPrefix && !rawUrl.startsWith(`${mediaPrefix}/`)) return false;
   try {
     const filePath = storagePathFromPublicUrl(rawUrl);
     const safe = safeJoin(etsyAgentConfig.storageRoot, path.relative(etsyAgentConfig.storageRoot, filePath));

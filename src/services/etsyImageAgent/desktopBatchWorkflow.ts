@@ -7,6 +7,7 @@ import { checkEtsyCompliance } from "./complianceService.js";
 import { generateOpenAIImageEditFromFile } from "./imageProviders/openaiProvider.js";
 import { getCurrentImageProviderSettings } from "./imageProviders/registry.js";
 import { imageAgentFolders, requireInputAsset, scanInputAssets } from "./inputAssetRegistry.js";
+import { readJsonFile, writeJsonFile } from "./jsonFile.js";
 import { findBestPromptRecord, findImagePromptRecord, promptHash as promptRecordHash, updateImagePromptRecord } from "./promptGenerationService.js";
 import { checkGeneratedImageQuality } from "./qualityService.js";
 import { isStructuredError, structuredError } from "./structuredErrors.js";
@@ -233,7 +234,7 @@ export function approvePromptAndGenerateImage(promptId: string, input: { confirm
   return publicBatch(findBatch(saved.batchId) ?? saved);
 }
 
-export function approveDesktopBatchItem(itemId: string): PublicDesktopBatch {
+export async function approveDesktopBatchItem(itemId: string): Promise<PublicDesktopBatch> {
   const batch = requireBatchForItem(itemId);
   const item = requireBatchItem(batch, itemId);
   if (!item.assetId) throw new Error("DESKTOP_BATCH_ITEM_NOT_READY：这张图还没有可通过的候选图。");
@@ -242,6 +243,7 @@ export function approveDesktopBatchItem(itemId: string): PublicDesktopBatch {
   ensureDir(batch.outputDir);
   const outputPath = uniqueOutputPath(batch.outputDir, item.baseName);
   fs.copyFileSync(asset.generatedFilePath, outputPath);
+  await nextTick();
   deleteAsset(asset.assetId);
   item.status = "approved";
   item.assetId = undefined;
@@ -455,16 +457,17 @@ async function generateBatchItem(batch: DesktopBatch, item: DesktopBatchItem): P
     const outputDir = safeJoin(etsyAgentConfig.storageRoot, `assets/desktop-${slugify(batch.batchId)}`);
     ensureDir(outputDir);
     const outputPath = path.join(outputDir, `${slugify(nextItem.baseName, "image")}-${Date.now()}-${slugify(nextItem.itemId, "item")}.png`);
+    const optimizedPrompt = promptForOpenAIImageEdit(nextItem.promptTextSnapshot, nextItem.negativePromptSnapshot);
     const generation = await generateOpenAIImageEditFromFile({
       inputPath: nextItem.inputPath,
       mimeType: nextItem.mimeType,
-      prompt: promptForOpenAIImageEdit(nextItem.promptTextSnapshot, nextItem.negativePromptSnapshot),
+      prompt: optimizedPrompt,
       outputPath,
       settings,
       requireRegisteredMediaPath: true,
     });
     const quality = await checkGeneratedImageQuality(outputPath, nextItem.promptTextSnapshot, listAssets());
-    const compliance = checkEtsyCompliance(nextItem.promptTextSnapshot, nextItem.promptTextSnapshot, quality.reason);
+    const compliance = checkEtsyCompliance(nextItem.promptTextSnapshot, optimizedPrompt, quality.reason);
     const asset: AssetRecord = {
       assetId: makeId("asset"),
       taskId: batch.batchId,
@@ -481,7 +484,7 @@ async function generateBatchItem(batch: DesktopBatch, item: DesktopBatchItem): P
       generatedFilePath: outputPath,
       publicUrl: getAssetStorage().publicUrlForLocalPath(outputPath),
       prompt: nextItem.promptTextSnapshot,
-      optimizedPrompt: nextItem.promptTextSnapshot,
+      optimizedPrompt,
       provider: "openai",
       imageGenerationMode: "product_reference",
       shotType: "hero_white_background",
@@ -603,13 +606,7 @@ function validateDesktopImage(filePath: string, mimeType: string): void {
 }
 
 function cleanupItemCandidate(item: DesktopBatchItem): boolean {
-  let deleted = false;
-  if (item.assetId) deleted = deleteAsset(item.assetId) || deleted;
-  const asset = item.assetId ? findAsset(item.assetId) : undefined;
-  if (asset?.generatedFilePath && fs.existsSync(asset.generatedFilePath)) {
-    fs.unlinkSync(asset.generatedFilePath);
-    deleted = true;
-  }
+  const deleted = item.assetId ? deleteAsset(item.assetId) : false;
   item.assetId = undefined;
   item.publicUrl = undefined;
   return deleted;
@@ -675,16 +672,15 @@ function mutateBatchItem(
 }
 
 function readBatches(): DesktopBatch[] {
-  try {
-    return JSON.parse(fs.readFileSync(batchesFile, "utf-8")) as DesktopBatch[];
-  } catch {
-    return [];
-  }
+  return readJsonFile<DesktopBatch[]>(batchesFile, []);
 }
 
 function writeBatches(batches: DesktopBatch[]): void {
-  ensureDir(path.dirname(batchesFile));
-  fs.writeFileSync(batchesFile, JSON.stringify(batches, null, 2), "utf-8");
+  writeJsonFile(batchesFile, batches);
+}
+
+function nextTick(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
 }
 
 function recomputeBatchCounts(batch: DesktopBatch): DesktopBatch {

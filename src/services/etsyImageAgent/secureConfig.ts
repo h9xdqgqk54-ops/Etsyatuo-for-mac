@@ -159,8 +159,12 @@ let gpt55PromptLastValidationError: PromptProviderValidationError | undefined;
 const TINY_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 const DOUBAO_PROMPT_TEST_TIMEOUT_MS = 45_000;
 
+function envOpenAIConfiguredKey(): string {
+  return configuredOpenAIKey(process.env.OPENAI_API_KEY ?? "");
+}
+
 export function getImageProviderConfig(): ImageProviderConfig {
-  const envOpenAIKey = configuredOpenAIKey(etsyAgentConfig.envOpenaiApiKey);
+  const envOpenAIKey = envOpenAIConfiguredKey();
   const sessionKey = configuredOpenAIKey(sessionOpenAIApiKey);
   const openAIKey = envOpenAIKey || sessionKey;
   const keySource: "env" | "session" | "none" = envOpenAIKey ? "env" : sessionKey ? "session" : "none";
@@ -512,7 +516,7 @@ export function saveLocalOpenAIInputFidelity(inputFidelity: string): OpenAISetti
 
 export function deleteLocalOpenAIKey(): OpenAISettingsStatus {
   ensureWebKeyConfigAllowed();
-  if (configuredOpenAIKey(etsyAgentConfig.envOpenaiApiKey)) {
+  if (envOpenAIConfiguredKey()) {
     throw new Error("当前 OpenAI API Key 由环境变量管理，无法通过网页删除。");
   }
   const fingerprint = keyFingerprint(sessionOpenAIApiKey);
@@ -696,7 +700,7 @@ export function publicOpenAISettingsStatus(): OpenAISettingsStatus {
 }
 
 export function getProviderSecret(_provider: ImageProviderId = "openai"): ProviderSecret {
-  const envOpenAIKey = configuredOpenAIKey(etsyAgentConfig.envOpenaiApiKey);
+  const envOpenAIKey = envOpenAIConfiguredKey();
   const sessionKey = configuredOpenAIKey(sessionOpenAIApiKey);
   const apiKey = envOpenAIKey || sessionKey;
   const source: "env" | "session" | "none" = envOpenAIKey ? "env" : sessionKey ? "session" : "none";

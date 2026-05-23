@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { etsyAgentConfig } from "./config.js";
 import { getImageAgentFolderSettings } from "./folderSettings.js";
+import { readJsonFile, writeJsonFile } from "./jsonFile.js";
 import { structuredError } from "./structuredErrors.js";
 import type { InputAssetRecord } from "./types.js";
 import { ensureDir, hashBuffer, nowIso, safeJoin, slugify } from "./utils.js";
@@ -107,14 +108,9 @@ function visibleFiles(dir: string): string[] {
 }
 
 function readJson<T>(filePath: string, fallback: T): T {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, "utf-8")) as T;
-  } catch {
-    return fallback;
-  }
+  return readJsonFile(filePath, fallback);
 }
 
 function writeInputAssets(assets: InputAssetRecord[]): void {
-  ensureDir(path.dirname(etsyAgentConfig.inputAssetRecordsPath));
-  fs.writeFileSync(etsyAgentConfig.inputAssetRecordsPath, JSON.stringify(assets, null, 2), "utf-8");
+  writeJsonFile(etsyAgentConfig.inputAssetRecordsPath, assets);
 }

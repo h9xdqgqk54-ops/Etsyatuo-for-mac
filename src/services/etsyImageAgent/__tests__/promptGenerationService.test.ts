@@ -190,6 +190,74 @@ describe("prompt generation service", () => {
     expect(service.listImagePromptRecords()).toHaveLength(2);
   });
 
+  it("keeps role hints aligned with original assetIds when some assets are skipped", async () => {
+    const root = setupPromptRoot();
+    writeImage(root, "001.jpg");
+    writeImage(root, "002.jpg");
+    const service = await import("../promptGenerationService.js");
+    const { scanInputAssets } = await import("../inputAssetRegistry.js");
+    const scan = scanInputAssets();
+    const now = new Date().toISOString();
+    fs.mkdirSync(path.dirname(process.env.ETSY_AGENT_PROMPT_RECORDS_PATH!), { recursive: true });
+    fs.writeFileSync(process.env.ETSY_AGENT_PROMPT_RECORDS_PATH!, JSON.stringify([{
+      id: "prompt_existing",
+      inputAssetId: scan.assets[0]!.inputAssetId,
+      productGroupId: scan.assets[0]!.inputAssetId,
+      role: "main",
+      detectedProduct: "existing product",
+      promptText: "existing generated prompt",
+      negativePrompt: "",
+      source: "gpt55-vision",
+      status: "generated",
+      confidence: 0.9,
+      model: "fake-vision-model",
+      promptHash: "existing_hash",
+      createdAt: now,
+      updatedAt: now,
+    }], null, 2), "utf-8");
+    const fetchMock = mockGpt55Response(JSON.stringify({
+      role: "secondary",
+      detectedProduct: "bunny",
+      promptText: "这是兔子，保持外观不变，生成 Etsy 副图。",
+      negativePrompt: "不要文字",
+      confidence: 0.8,
+    }));
+
+    await service.generatePromptsFromImages({
+      assetIds: scan.assets.map((asset) => asset.inputAssetId),
+      roles: ["detail", "secondary"],
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body ?? "{}")) as { messages: Array<{ content: unknown }> };
+    expect(JSON.stringify(body.messages)).toContain("roleHint: secondary");
+    expect(JSON.stringify(body.messages)).not.toContain("roleHint: detail");
+  });
+
+  it("persists records generated before a prompt provider configuration error aborts the batch", async () => {
+    const root = setupPromptRoot();
+    writeImage(root, "001.jpg");
+    writeImage(root, "002.jpg");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({
+          role: "main",
+          detectedProduct: "bunny",
+          promptText: "这是兔子，保持外观不变，生成 Etsy 主图。",
+          negativePrompt: "不要文字",
+          confidence: 0.8,
+        }) } }],
+      }), { status: 200, headers: { "x-request-id": "req_first_ok" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "permission denied for this model" } }), { status: 403 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const service = await import("../promptGenerationService.js");
+
+    await expect(service.generatePromptsFromImages()).rejects.toMatchObject({ code: "GPT55_PERMISSION_DENIED" });
+
+    const records = service.listImagePromptRecords();
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ status: "generated", promptProviderRequestId: "req_first_ok" });
+  });
+
   it("classifies GPT5.5 auth, permission, and missing model failures without misreporting vision support", async () => {
     const cases: Array<[number, string, string]> = [
       [401, "invalid api key", "GPT55_AUTH_FAILED"],

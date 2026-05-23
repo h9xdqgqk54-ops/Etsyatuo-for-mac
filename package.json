@@ -10,7 +10,7 @@
     "test": "vitest run",
     "build": "tsc -p tsconfig.json --noEmit",
     "build:cli": "node scripts/build-cli.mjs",
-    "package:win": "pnpm build:cli && node scripts/package-win-cli.mjs",
+    "package:win": "pnpm build:cli && node scripts/package-win-cli.mjs && node scripts/package-windows-delivery.mjs",
     "verify:local": "tsx scripts/verify-local.ts",
     "package:source": "node scripts/package-source.mjs"
   },

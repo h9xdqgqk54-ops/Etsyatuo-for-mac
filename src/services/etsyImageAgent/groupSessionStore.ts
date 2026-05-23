@@ -1,8 +1,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { etsyAgentConfig } from "./config.js";
+import { readJsonFile, writeJsonFile } from "./jsonFile.js";
 import type { GroupSession, ProductGroup } from "./types.js";
-import { ensureDir, makeId, nowIso } from "./utils.js";
+import { makeId, nowIso } from "./utils.js";
 
 const metadataDir = path.join(etsyAgentConfig.storageRoot, "metadata");
 const sessionsFile = path.join(metadataDir, "group-sessions.json");
@@ -147,14 +148,9 @@ function requireGroup(groups: ProductGroup[], groupId: string): ProductGroup {
 }
 
 function readJson<T>(filePath: string, fallback: T): T {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, "utf-8")) as T;
-  } catch {
-    return fallback;
-  }
+  return readJsonFile(filePath, fallback);
 }
 
 function writeJson(filePath: string, value: unknown): void {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, JSON.stringify(value, null, 2), "utf-8");
+  writeJsonFile(filePath, value);
 }

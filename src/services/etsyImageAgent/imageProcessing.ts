@@ -1,9 +1,10 @@
 import * as fs from "node:fs";
-import sharp from "sharp";
 import { etsyAgentConfig } from "./config.js";
+import { loadSharp } from "./sharpRuntime.js";
 
 export async function getImageInfo(filePath: string): Promise<{ width?: number; height?: number; perceptualKey: string }> {
   try {
+    const sharp = await loadSharp();
     const image = sharp(filePath);
     const meta = await image.metadata();
     const stat = await image
@@ -21,6 +22,7 @@ export async function getImageInfo(filePath: string): Promise<{ width?: number; 
 
 export async function normalizeGeneratedImage(input: Buffer, outputPath: string): Promise<{ width: number; height: number; outputSize: string }> {
   const target = etsyAgentConfig.targetExportSize;
+  const sharp = await loadSharp();
   await sharp(input)
     .rotate()
     .resize(target, target, {
@@ -35,6 +37,7 @@ export async function normalizeGeneratedImage(input: Buffer, outputPath: string)
 
 export async function createMockProductImage(outputPath: string, label: string, hue: number): Promise<{ width: number; height: number; outputSize: string }> {
   const target = etsyAgentConfig.targetExportSize;
+  const sharp = await loadSharp();
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${target}" height="${target}" viewBox="0 0 ${target} ${target}">
     <rect width="100%" height="100%" fill="#fafaf8"/>
     <rect x="120" y="120" width="${target - 240}" height="${target - 240}" rx="36" fill="hsl(${hue}, 24%, 94%)" stroke="hsl(${hue}, 18%, 82%)" stroke-width="6"/>

@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { etsyAgentConfig } from "./config.js";
 import { isRegisteredInputAssetPath } from "./inputAssetRegistry.js";
 import { listGroupSessions } from "./groupSessionStore.js";
+import { readJsonFile, writeJsonFile } from "./jsonFile.js";
 import type { AssetRecord, EtsyAgentTask } from "./types.js";
 import { ensureDir } from "./utils.js";
 
@@ -15,8 +16,8 @@ export function initStorage(): void {
   ensureDir(metadataDir);
   ensureDir(path.join(etsyAgentConfig.storageRoot, "assets"));
   ensureDir(path.join(etsyAgentConfig.storageRoot, "originals"));
-  if (!fs.existsSync(assetsFile)) fs.writeFileSync(assetsFile, "[]", "utf-8");
-  if (!fs.existsSync(tasksFile)) fs.writeFileSync(tasksFile, "[]", "utf-8");
+  if (!fs.existsSync(assetsFile)) writeJsonFile(assetsFile, []);
+  if (!fs.existsSync(tasksFile)) writeJsonFile(tasksFile, []);
 }
 
 export function listAssets(): AssetRecord[] {
@@ -75,14 +76,9 @@ export function isRegisteredMediaPath(filePath: string): boolean {
 }
 
 function readJson<T>(filePath: string, fallback: T): T {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, "utf-8")) as T;
-  } catch {
-    return fallback;
-  }
+  return readJsonFile(filePath, fallback);
 }
 
 function writeJson(filePath: string, value: unknown): void {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, JSON.stringify(value, null, 2), "utf-8");
+  writeJsonFile(filePath, value);
 }
