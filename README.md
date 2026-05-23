@@ -2,6 +2,109 @@
 
 `/etsy-image-agent` 是当前主工作台：它读取本地图片输入目录，用 GPT5.5 为每张图生成中文电商图生图 prompt、款式英文名和 Etsy listing 文案，人工编辑/通过后，再用 OpenAI Images edit 批量生成候选图。
 
+## Windows 合作者安装运行指南
+
+适用于已经被邀请为本私有仓库 collaborator 的 Windows 用户。请先确认你已经接受 GitHub 仓库邀请，并且浏览器登录的是被邀请的 GitHub 账号。
+
+### 首次安装并运行
+
+先安装：
+
+- Git for Windows: https://git-scm.com/downloads/win
+- Node.js: https://nodejs.org/en/download
+
+然后打开 PowerShell，执行：
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned -Force
+
+cd $env:USERPROFILE\Desktop
+
+npm install -g pnpm@latest-11
+
+git clone --branch codex/openai-agent --single-branch https://github.com/h9xdqgqk54-ops/Etsyauto.git Etsyauto
+
+cd Etsyauto
+
+pnpm install
+
+Copy-Item .env.example .env
+
+notepad .env
+```
+
+在 `.env` 里填好：
+
+```env
+GPT55_API_KEY=你的_gpt55_key
+OPENAI_API_KEY=你的_openai_key
+OPENAI_BASE_URL=
+```
+
+保存 `.env` 后，回到 PowerShell 继续运行：
+
+```powershell
+pnpm desktop:dev
+```
+
+正常会自动打开：
+
+```text
+http://127.0.0.1:3456/etsy-image-agent
+```
+
+如果浏览器没有自动打开，就手动复制上面的地址到浏览器。
+
+### 以后再次运行
+
+```powershell
+cd $env:USERPROFILE\Desktop\Etsyauto
+pnpm desktop:dev
+```
+
+### 更新代码后再运行
+
+```powershell
+cd $env:USERPROFILE\Desktop\Etsyauto
+git pull
+pnpm install
+pnpm desktop:dev
+```
+
+### 如果端口被占用
+
+```powershell
+cd $env:USERPROFILE\Desktop\Etsyauto
+pnpm desktop:dev -- --port 0
+```
+
+### 打包成 Windows 双击程序
+
+```powershell
+cd $env:USERPROFILE\Desktop\Etsyauto
+pnpm package:win
+```
+
+打包结果在：
+
+```text
+dist\delivery\Etsyauto-Windows.zip
+```
+
+解压后双击 `Etsyauto.exe` 即可运行。不要把 API Key 写进仓库或打包进程序里。
+
+### 常见问题
+
+如果提示 `Repository not found`，说明还没有接受 GitHub 邀请，或者登录了错误的 GitHub 账号。
+
+如果提示 `pnpm.ps1 cannot be loaded`，重新执行：
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned -Force
+```
+
+然后关闭 PowerShell，再重新打开。
+
 ## 本地文件夹
 
 默认目录：
