@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { etsyAgentConfig } from "./config.js";
-import { getDesktopBatchById, type PublicDesktopBatch, type PublicDesktopBatchItem } from "./desktopBatchWorkflow.js";
+import { desktopBatchOutputImageUrl, getDesktopBatchById, type PublicDesktopBatch, type PublicDesktopBatchItem } from "./desktopBatchWorkflow.js";
 import { readJsonFile, writeJsonFile } from "./jsonFile.js";
 import { gpt55PromptProvider } from "./promptProviders/gpt55PromptProvider.js";
 import type { StyleNameImageInput } from "./promptProviders/types.js";
@@ -123,7 +123,7 @@ function imageMetaForItem(item: PublicDesktopBatchItem, existing: ProductWorkben
     inputFileName: item.inputFileName,
     outputFileName: item.outputFileName ?? "",
     outputFilePath: item.outputFilePath ?? "",
-    publicUrl: item.publicUrl,
+    publicUrl: item.publicUrl ?? (item.outputFilePath ? desktopBatchOutputImageUrl(item.batchId, item.itemId) : undefined),
     color: existing?.color ?? "",
     size: existing?.size ?? "",
     material: existing?.material ?? "",

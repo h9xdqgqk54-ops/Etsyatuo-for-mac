@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import type archiverType from "archiver";
 import { etsyAgentConfig, storagePathFromPublicUrl } from "./config.js";
 import { deleteAsset, findAsset, findTask, initStorage, isRegisteredMediaPath, listAssets } from "./assetLibrary.js";
-import { approveDesktopBatchItem, approvePromptAndGenerateImage, cleanupPendingDesktopCandidates, getCurrentDesktopBatch, regenerateDesktopBatchItem, scanDesktopBatchFolders, startDesktopBatchGeneration } from "./desktopBatchWorkflow.js";
+import { approveDesktopBatchItem, approvePromptAndGenerateImage, cleanupPendingDesktopCandidates, getCurrentDesktopBatch, getDesktopBatchById, regenerateDesktopBatchItem, scanDesktopBatchFolders, startDesktopBatchGeneration } from "./desktopBatchWorkflow.js";
 import { getImageAgentFolderSettings, saveImageAgentFolderSettings } from "./folderSettings.js";
 import { findGroupSession, mergeGroups, moveImageBetweenGroups, renameGroup, saveGroupSession, setGroupLocked, setGroupMainImage, splitGroup } from "./groupSessionStore.js";
 import { findInputAsset } from "./inputAssetRegistry.js";
@@ -259,6 +259,11 @@ export async function handleEtsyAgentRoute(req: http.IncomingMessage, res: http.
     if (method === "POST" && desktopFinalizeListingMatch) {
       const record = await finalizeBatchListing(decodeURIComponent(desktopFinalizeListingMatch[1]!));
       return json(res, 200, { ok: true, data: record });
+    }
+
+    const desktopOutputImageMatch = pathname.match(/^\/api\/etsy-agent\/desktop-batch\/([^/]+)\/items\/([^/]+)\/output-image$/);
+    if (method === "GET" && desktopOutputImageMatch) {
+      return streamDesktopBatchOutputImage(res, decodeURIComponent(desktopOutputImageMatch[1]!), decodeURIComponent(desktopOutputImageMatch[2]!));
     }
 
     const desktopApproveMatch = pathname.match(/^\/api\/etsy-agent\/desktop-batch\/items\/([^/]+)\/approve$/);
@@ -573,6 +578,21 @@ function createLocalRequire(): NodeJS.Require {
   } catch {
     return createRequire(path.join(process.cwd(), "package.json"));
   }
+}
+
+function streamDesktopBatchOutputImage(res: http.ServerResponse, batchId: string, itemId: string): true {
+  const batch = getDesktopBatchById(batchId);
+  const item = batch?.items.find((candidate) => candidate.itemId === itemId);
+  if (!batch || !item || item.status !== "approved" || !item.outputFilePath) {
+    return text(res, 404, "Not found");
+  }
+  const outputDir = path.resolve(batch.outputDir);
+  const outputPath = path.resolve(item.outputFilePath);
+  const relative = path.relative(outputDir, outputPath);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative) || !fs.existsSync(outputPath)) {
+    return text(res, 404, "Not found");
+  }
+  return streamFile(res, outputPath, item.outputFileName ?? path.basename(outputPath));
 }
 
 function streamFile(res: http.ServerResponse, filePath: string, downloadName: string): true {

@@ -76,6 +76,10 @@ export interface PublicDesktopBatch extends Omit<DesktopBatch, "items"> {
   items: PublicDesktopBatchItem[];
 }
 
+export function desktopBatchOutputImageUrl(batchId: string, itemId: string): string {
+  return `/api/etsy-agent/desktop-batch/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/output-image`;
+}
+
 interface DesktopGenerationSource {
   asset: InputAssetRecord;
   promptRecordId: string;
@@ -703,8 +707,10 @@ function publicBatch(batch: DesktopBatch): PublicDesktopBatch {
     ...rest,
     items: items.map(({ inputPath: _inputPath, promptTextSnapshot, ...item }) => {
       const safePromptTextSnapshot = typeof promptTextSnapshot === "string" ? promptTextSnapshot : "";
+      const publicUrl = item.publicUrl ?? (item.status === "approved" && item.outputFilePath ? desktopBatchOutputImageUrl(batch.batchId, item.itemId) : undefined);
       return {
         ...item,
+        publicUrl,
         promptTextSnapshot: safePromptTextSnapshot,
         promptPreview: safePromptTextSnapshot.slice(0, 240),
       };

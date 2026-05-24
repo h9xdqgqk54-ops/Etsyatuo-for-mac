@@ -55,6 +55,8 @@ function setupApiRoot(): { root: string; batchId: string } {
   const batchId = "batch_api_workbench";
   fs.writeFileSync(path.join(inputDir, "rabbit-pink.png"), "input");
   fs.writeFileSync(path.join(outputDir, "rabbit-pink.png"), Buffer.from(pngBase64, "base64"));
+  fs.writeFileSync(path.join(outputDir, "pending-output.png"), Buffer.from(pngBase64, "base64"));
+  fs.writeFileSync(path.join(root, "outside-output.png"), Buffer.from(pngBase64, "base64"));
   const now = new Date().toISOString();
   fs.writeFileSync(path.join(root, "storage", "metadata", "desktop-batches.json"), JSON.stringify([{
     batchId,
@@ -85,6 +87,43 @@ function setupApiRoot(): { root: string; batchId: string } {
       status: "approved",
       outputFileName: "rabbit-pink.png",
       outputFilePath: path.join(outputDir, "rabbit-pink.png"),
+      attempts: 1,
+      createdAt: now,
+      updatedAt: now,
+      approvedAt: now,
+    }, {
+      itemId: "item_pending",
+      batchId,
+      baseName: "pending-output",
+      inputAssetId: "input_2",
+      inputFileName: "pending-output.png",
+      inputPath: path.join(inputDir, "rabbit-pink.png"),
+      mimeType: "image/png",
+      promptRecordId: "prompt_2",
+      promptTextSnapshot: "same product prompt",
+      negativePromptSnapshot: "no text",
+      promptStatusAtGeneration: "approved",
+      status: "generated",
+      outputFileName: "pending-output.png",
+      outputFilePath: path.join(outputDir, "pending-output.png"),
+      attempts: 1,
+      createdAt: now,
+      updatedAt: now,
+    }, {
+      itemId: "item_outside",
+      batchId,
+      baseName: "outside-output",
+      inputAssetId: "input_3",
+      inputFileName: "outside-output.png",
+      inputPath: path.join(inputDir, "rabbit-pink.png"),
+      mimeType: "image/png",
+      promptRecordId: "prompt_3",
+      promptTextSnapshot: "same product prompt",
+      negativePromptSnapshot: "no text",
+      promptStatusAtGeneration: "approved",
+      status: "approved",
+      outputFileName: "outside-output.png",
+      outputFilePath: path.join(root, "outside-output.png"),
       attempts: 1,
       createdAt: now,
       updatedAt: now,
@@ -140,8 +179,26 @@ describe("product workbench API routes", () => {
         itemId: "item_1",
         inputFileName: "rabbit-pink.png",
         outputFileName: "rabbit-pink.png",
+        publicUrl: `/api/etsy-agent/desktop-batch/${batchId}/items/item_1/output-image`,
       })]);
       expect(json.data).not.toHaveProperty("priceRows");
+    });
+  });
+
+  it("serves approved output image previews while rejecting unsafe output paths", async () => {
+    const { batchId } = setupApiRoot();
+
+    await withServer(async (baseUrl) => {
+      const approvedResponse = await fetch(`${baseUrl}/api/etsy-agent/desktop-batch/${batchId}/items/item_1/output-image`);
+      const approvedBytes = Buffer.from(await approvedResponse.arrayBuffer());
+      const pendingResponse = await fetch(`${baseUrl}/api/etsy-agent/desktop-batch/${batchId}/items/item_pending/output-image`);
+      const outsideResponse = await fetch(`${baseUrl}/api/etsy-agent/desktop-batch/${batchId}/items/item_outside/output-image`);
+
+      expect(approvedResponse.status).toBe(200);
+      expect(approvedResponse.headers.get("content-type")).toContain("image/png");
+      expect(approvedBytes.length).toBe(Buffer.from(pngBase64, "base64").length);
+      expect(pendingResponse.status).toBe(404);
+      expect(outsideResponse.status).toBe(404);
     });
   });
 

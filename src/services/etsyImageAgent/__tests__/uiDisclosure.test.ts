@@ -365,6 +365,21 @@ describe("image agent listing runtime", () => {
     }
   });
 
+  it("renders approved output thumbnails in image review and style name sections", async () => {
+    const harness = await openImageAgentWithBatch(mockBatch(["approved"]), { omitWorkbenchPublicUrls: true });
+    try {
+      await waitForListingText(harness.page, "款式英文名");
+      const expectedPath = "/api/etsy-agent/desktop-batch/batch_runtime/items/item_0/output-image";
+
+      expect(await harness.page.locator("#items .item img").count()).toBe(1);
+      expect(await harness.page.locator("#items .item img").getAttribute("src")).toBe(expectedPath);
+      expect(await harness.page.locator("#listingBox .meta-card .thumb img").count()).toBe(1);
+      expect(await harness.page.locator("#listingBox .meta-card .thumb img").getAttribute("src")).toBe(expectedPath);
+    } finally {
+      await harness.browser.close();
+    }
+  });
+
   it("does not render removed image metadata pairing controls or call image-meta APIs", async () => {
     const harness = await openImageAgentWithBatch(mockBatch(["approved"]), { initialImageMetasEmpty: true });
     try {
@@ -413,6 +428,7 @@ async function openImageAgentWithBatch(batch: MockBatch | null, options: {
   finalizeStatus?: number;
   finalizeBody?: Record<string, unknown>;
   initialImageMetasEmpty?: boolean;
+  omitWorkbenchPublicUrls?: boolean;
 } = {}): Promise<PageHarness> {
   const assets = readMainWorkbenchAssets();
   const browser = await chromium.launch({ headless: true });
@@ -443,7 +459,7 @@ async function handleImageAgentRoute(
   revisionBodies: Array<Record<string, unknown>>,
   stylePatchBodies: Array<Record<string, unknown>>,
   imageMetaPatchBodies: Array<Record<string, unknown>>,
-  options: { finalizeStatus?: number; finalizeBody?: Record<string, unknown>; initialImageMetasEmpty?: boolean },
+  options: { finalizeStatus?: number; finalizeBody?: Record<string, unknown>; initialImageMetasEmpty?: boolean; omitWorkbenchPublicUrls?: boolean },
 ): Promise<void> {
   const request = route.request();
   const url = new URL(request.url());
@@ -486,29 +502,33 @@ async function handleImageAgentRoute(
   }
   if (url.pathname === "/api/etsy-agent/desktop-batch/batch_runtime/workbench") {
     workbenchRequests.push(`${request.method()} ${url.pathname}`);
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, data: mockWorkbenchRecord(batch, false, false, options.initialImageMetasEmpty) }) });
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, data: mockWorkbenchRecord(batch, false, false, options.initialImageMetasEmpty, options.omitWorkbenchPublicUrls) }) });
     return;
   }
   if (url.pathname === "/api/etsy-agent/desktop-batch/batch_runtime/workbench/image-metas") {
     workbenchRequests.push(`${request.method()} ${url.pathname}`);
     imageMetaPatchBodies.push(JSON.parse(request.postData() || "{}") as Record<string, unknown>);
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, data: mockWorkbenchRecord(batch, true) }) });
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, data: mockWorkbenchRecord(batch, true, false, false, options.omitWorkbenchPublicUrls) }) });
     return;
   }
   if (url.pathname === "/api/etsy-agent/desktop-batch/batch_runtime/workbench/image-metas/generate") {
     workbenchRequests.push(`${request.method()} ${url.pathname}`);
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, data: mockWorkbenchRecord(batch, true) }) });
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, data: mockWorkbenchRecord(batch, true, false, false, options.omitWorkbenchPublicUrls) }) });
     return;
   }
   if (url.pathname === "/api/etsy-agent/desktop-batch/batch_runtime/workbench/style-names") {
     workbenchRequests.push(`${request.method()} ${url.pathname}`);
     stylePatchBodies.push(JSON.parse(request.postData() || "{}") as Record<string, unknown>);
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, data: mockWorkbenchRecord(batch, true) }) });
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, data: mockWorkbenchRecord(batch, true, false, false, options.omitWorkbenchPublicUrls) }) });
     return;
   }
   if (url.pathname === "/api/etsy-agent/desktop-batch/batch_runtime/workbench/style-names/generate") {
     workbenchRequests.push(`${request.method()} ${url.pathname}`);
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, data: mockWorkbenchRecord(batch, true) }) });
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, data: mockWorkbenchRecord(batch, true, false, false, options.omitWorkbenchPublicUrls) }) });
+    return;
+  }
+  if (/^\/api\/etsy-agent\/desktop-batch\/batch_runtime\/items\/item_\d+\/output-image$/.test(url.pathname)) {
+    await route.fulfill({ status: 200, contentType: "image/png", body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=", "base64") });
     return;
   }
   if (url.pathname === "/api/etsy-agent/desktop-batch/batch_runtime/finalize-listing") {
@@ -642,7 +662,7 @@ function mockRevisedWorkbenchRecord(batch: MockBatch | null): Record<string, unk
   };
 }
 
-function mockWorkbenchRecord(batch: MockBatch | null, edited = false, confirmed = false, emptyImageMetas = false): Record<string, unknown> {
+function mockWorkbenchRecord(batch: MockBatch | null, edited = false, confirmed = false, emptyImageMetas = false, omitPublicUrls = false): Record<string, unknown> {
   const approved = batch?.items.filter((item) => item.status === "approved") ?? [];
   return {
     batchId: batch?.batchId ?? "batch_runtime",
@@ -652,7 +672,7 @@ function mockWorkbenchRecord(batch: MockBatch | null, edited = false, confirmed 
       inputFileName: item.inputFileName,
       outputFileName: item.outputFileName,
       outputFilePath: item.outputFilePath,
-      publicUrl: `/media/etsy-agent/outputs/item-${Number(item.itemId.replace("item_", "")) + 1}.png`,
+      publicUrl: omitPublicUrls ? undefined : `/media/etsy-agent/outputs/item-${Number(item.itemId.replace("item_", "")) + 1}.png`,
       color: emptyImageMetas ? "" : "pink floral",
       size: emptyImageMetas ? "" : "18 cm",
       material: emptyImageMetas ? "" : "soft plush fabric",
