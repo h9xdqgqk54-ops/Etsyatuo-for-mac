@@ -56,7 +56,7 @@ const vercelBlobStorage: AssetStorage = {
       addRandomSuffix: true,
     });
     if (!isPublicHttpsUrl(blob.url)) {
-      throw new Error("PUBLIC_ASSET_STORAGE_REQUIRED：Vercel Blob 上传未返回公网 HTTPS publicUrl，不能执行豆包 product_reference 图生图。");
+      throw new Error("PUBLIC_ASSET_STORAGE_REQUIRED：Vercel Blob 上传未返回公网 HTTPS publicUrl，不能执行公网参考图生成。");
     }
     return {
       storedPath: input.localPath,

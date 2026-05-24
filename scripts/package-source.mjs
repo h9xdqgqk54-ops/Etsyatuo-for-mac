@@ -20,8 +20,12 @@ const requiredFiles = [
   "SOURCE_PACKAGE_README.md",
   "src/services/app_server.ts",
   "api/index.ts",
-  "public/app.html",
   "public/etsy-image-agent.html",
+  "public/etsy-image-agent.css",
+  "public/etsy-image-agent.js",
+  "public/openai-settings.html",
+  "public/openai-settings.css",
+  "public/openai-settings.js",
   "vercel.json",
 ];
 

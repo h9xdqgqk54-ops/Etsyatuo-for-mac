@@ -94,6 +94,38 @@ function setupApiRoot(): { root: string; batchId: string } {
   return { root, batchId };
 }
 
+function listingJson(overrides: Record<string, unknown> = {}) {
+  return {
+    title: "Pink Bunny Plush Toy for Cozy Nursery Decor",
+    description: "A soft pink bunny plush with floral fabric accents for cozy nursery shelves and thoughtful handmade-style gifts.",
+    keywords: [
+      "bunny plush",
+      "plush toy",
+      "rabbit toy",
+      "soft bunny",
+      "nursery decor",
+      "kids gift",
+      "baby shower",
+      "stuffed animal",
+      "easter bunny",
+      "cute plush",
+      "floral bunny",
+      "pink bunny",
+      "gift for kids",
+    ],
+    ...overrides,
+  };
+}
+
+function gpt55Response(content: unknown, requestId: string): Response {
+  return new Response(JSON.stringify({
+    choices: [{ message: { content: JSON.stringify(content) } }],
+  }), {
+    status: 200,
+    headers: { "x-request-id": requestId },
+  });
+}
+
 describe("product workbench API routes", () => {
   it("returns a product workbench without price rows", async () => {
     const { batchId } = setupApiRoot();
@@ -159,32 +191,83 @@ describe("product workbench API routes", () => {
     });
   });
 
-  it("generates image metadata through the workbench API", async () => {
+  it("does not expose removed image metadata pairing endpoints", async () => {
     const { batchId } = setupApiRoot();
-    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
-      expect(String(init.body)).toContain("imageMetas");
-      return new Response(JSON.stringify({
-        choices: [{ message: { content: JSON.stringify({
-          imageMetas: [{ itemId: "item_1", color: "pink", size: "18 cm", material: "soft plush", note: "floral ears" }],
-        }) } }],
-      }), {
-        status: 200,
-        headers: { "x-request-id": "req_image_metas" },
-      });
-    });
+    const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
     await withServer(async (baseUrl) => {
-      const response = await nativeFetch(`${baseUrl}/api/etsy-agent/desktop-batch/${batchId}/workbench/image-metas/generate`, { method: "POST" });
-      const json = await response.json() as { ok: boolean; data: { imageMetas: Array<{ color: string; size: string; material: string; note: string; source: string }> } };
+      const patchResponse = await nativeFetch(`${baseUrl}/api/etsy-agent/desktop-batch/${batchId}/workbench/image-metas`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ metas: [{ itemId: "item_1", color: "pink" }] }),
+      });
+      const generateResponse = await nativeFetch(`${baseUrl}/api/etsy-agent/desktop-batch/${batchId}/workbench/image-metas/generate`, { method: "POST" });
 
-      expect(response.status).toBe(200);
-      expect(json.data.imageMetas[0]).toMatchObject({
-        color: "pink",
-        size: "18 cm",
-        material: "soft plush",
-        note: "floral ears",
-        source: "gpt55",
+      expect(patchResponse.status).toBe(410);
+      expect(generateResponse.status).toBe(410);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
+
+  it("revises listing copy and style names from a Chinese suggestion through the API", async () => {
+    const { batchId } = setupApiRoot();
+    const revised = {
+      title: "Dog Plush Chew Toy with Soft Rope Detail",
+      description: "This playful plush pet toy has a soft animal shape, gentle stitched details, and a visible rope accent for cozy dog gift photos and everyday pet play.",
+      keywords: [
+        "dog chew toy",
+        "pet plush toy",
+        "puppy toy",
+        "rope dog toy",
+        "soft pet toy",
+        "animal dog toy",
+        "dog gift",
+        "plush chew toy",
+        "cute dog toy",
+        "small dog toy",
+        "pet supplies",
+        "dog birthday",
+        "puppy gift",
+      ],
+      styles: [{ itemId: "item_1", styleNameEn: "Dog Rope Toy" }],
+    };
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(async () => gpt55Response(listingJson(), "req_initial_listing"))
+      .mockImplementationOnce(async (_url: string, init: RequestInit) => {
+        expect(String(init.body)).toContain("请改成宠物玩具方向");
+        return gpt55Response(revised, "req_revision");
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await withServer(async (baseUrl) => {
+      const finalizeResponse = await nativeFetch(`${baseUrl}/api/etsy-agent/desktop-batch/${batchId}/finalize-listing`, { method: "POST" });
+      const finalizeJson = await finalizeResponse.json() as { data: { listingId: string } };
+
+      const reviseResponse = await nativeFetch(`${baseUrl}/api/etsy-agent/listings/${finalizeJson.data.listingId}/revise-with-suggestion`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ suggestion: "请改成宠物玩具方向，全部输出英文，款式名短一点。" }),
+      });
+      const reviseJson = await reviseResponse.json() as {
+        ok: boolean;
+        data: {
+          listing: { title: string; keywords: string[]; status: string };
+          workbench: { imageMetas: Array<{ itemId: string; styleNameEn: string; styleNameSource: string }> };
+        };
+      };
+
+      expect(reviseResponse.status).toBe(200);
+      expect(reviseJson.ok).toBe(true);
+      expect(reviseJson.data.listing).toMatchObject({
+        title: revised.title,
+        status: "edited",
+      });
+      expect(reviseJson.data.listing.keywords).toEqual(revised.keywords);
+      expect(reviseJson.data.workbench.imageMetas[0]).toMatchObject({
+        itemId: "item_1",
+        styleNameEn: "Dog Rope Toy",
+        styleNameSource: "gpt55",
       });
     });
   });

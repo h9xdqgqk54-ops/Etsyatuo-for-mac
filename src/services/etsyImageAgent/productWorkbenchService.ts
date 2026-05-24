@@ -73,6 +73,14 @@ export function updateProductWorkbenchImageMetas(batchId: string, updates: Updat
 }
 
 export function updateProductWorkbenchStyleNames(batchId: string, updates: UpdateWorkbenchStyleNameInput[]): ProductWorkbenchRecord {
+  return updateProductWorkbenchStyleNamesWithSource(batchId, updates, "manual");
+}
+
+export function updateProductWorkbenchStyleNamesFromGpt55(batchId: string, updates: UpdateWorkbenchStyleNameInput[]): ProductWorkbenchRecord {
+  return updateProductWorkbenchStyleNamesWithSource(batchId, updates, "gpt55");
+}
+
+function updateProductWorkbenchStyleNamesWithSource(batchId: string, updates: UpdateWorkbenchStyleNameInput[], source: "manual" | "gpt55"): ProductWorkbenchRecord {
   const record = syncProductWorkbench(batchId);
   const now = nowIso();
   for (const update of updates) {
@@ -80,7 +88,7 @@ export function updateProductWorkbenchStyleNames(batchId: string, updates: Updat
     if (!meta) continue;
     if (typeof update.styleNameEn === "string") {
       meta.styleNameEn = normalizeStyleNameEn(update.styleNameEn);
-      meta.styleNameSource = "manual";
+      meta.styleNameSource = source;
       meta.styleNameUpdatedAt = now;
       meta.updatedAt = now;
     }
@@ -109,38 +117,6 @@ export async function generateProductWorkbenchStyleNames(batchId: string): Promi
   return record;
 }
 
-export async function generateProductWorkbenchImageMetas(batchId: string): Promise<ProductWorkbenchRecord> {
-  const record = syncProductWorkbench(batchId);
-  const batch = requireBatch(batchId);
-  const imageInputs = await prepareWorkbenchImagesForGpt55(batch.batchId, approvedOutputItems(batch), record, "image-meta");
-  const result = await gpt55PromptProvider.generateImageMetas({ batchId, images: imageInputs });
-  const now = nowIso();
-  for (const generated of result.imageMetas) {
-    const meta = record.imageMetas.find((item) => item.itemId === generated.itemId);
-    if (!meta) continue;
-    const beforeSource = meta.source;
-    let filledByGpt55 = false;
-    let preservedManualField = beforeSource === "manual" || beforeSource === "mixed";
-    for (const field of ["color", "size", "material", "note"] as const) {
-      const nextValue = normalizeImageMetaText(generated[field]);
-      if (!nextValue) continue;
-      const currentValue = normalizeImageMetaText(meta[field]);
-      if (currentValue) {
-        if (currentValue !== nextValue) preservedManualField = true;
-        continue;
-      }
-      meta[field] = nextValue;
-      filledByGpt55 = true;
-    }
-    if (!filledByGpt55) continue;
-    meta.source = preservedManualField ? "mixed" : "gpt55";
-    meta.updatedAt = now;
-  }
-  record.updatedAt = now;
-  upsertWorkbenchRecord(record);
-  return record;
-}
-
 function imageMetaForItem(item: PublicDesktopBatchItem, existing: ProductWorkbenchImageMeta | undefined, now: string): ProductWorkbenchImageMeta {
   return {
     itemId: item.itemId,
@@ -160,7 +136,7 @@ function imageMetaForItem(item: PublicDesktopBatchItem, existing: ProductWorkben
   };
 }
 
-async function prepareWorkbenchImagesForGpt55(batchId: string, items: PublicDesktopBatchItem[], record: ProductWorkbenchRecord, purpose: "style-name" | "image-meta"): Promise<StyleNameImageInput[]> {
+async function prepareWorkbenchImagesForGpt55(batchId: string, items: PublicDesktopBatchItem[], record: ProductWorkbenchRecord, purpose: "style-name"): Promise<StyleNameImageInput[]> {
   const settings = getEffectiveGpt55PromptSettings();
   const maxBytes = settings.maxInputMb * 1024 * 1024;
   const targetDir = path.join(etsyAgentConfig.dataRoot, "workbench-vision-inputs", purpose, slugify(batchId, "batch"));
@@ -204,10 +180,6 @@ async function prepareWorkbenchImagesForGpt55(batchId: string, items: PublicDesk
       note: meta?.note,
     };
   }));
-}
-
-function normalizeImageMetaText(value: unknown): string {
-  return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
 }
 
 function normalizeStyleNameEn(value: string): string {

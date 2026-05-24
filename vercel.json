@@ -1,6 +1,6 @@
 {
-  "buildCommand": "pnpm build",
-  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "npm run build",
+  "installCommand": "npm install",
   "outputDirectory": "public",
   "functions": {
     "api/index.ts": {
@@ -12,10 +12,10 @@
     { "source": "/api/:path*", "destination": "/api/index" },
     { "source": "/media/etsy-agent/:path*", "destination": "/api/index" },
     { "source": "/etsy-image-agent", "destination": "/etsy-image-agent.html" },
-    { "source": "/asset-library", "destination": "/asset-library.html" },
     { "source": "/settings/openai", "destination": "/openai-settings.html" },
     { "source": "/settings/image-provider-settings", "destination": "/openai-settings.html" },
-    { "source": "/app", "destination": "/app.html" },
-    { "source": "/", "destination": "/app.html" }
+    { "source": "/app", "destination": "/etsy-image-agent.html" },
+    { "source": "/asset-library", "destination": "/etsy-image-agent.html" },
+    { "source": "/", "destination": "/etsy-image-agent.html" }
   ]
 }

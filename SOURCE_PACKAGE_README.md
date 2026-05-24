@@ -6,7 +6,7 @@ This archive is a source-ready copy of the Etsyauto project. It is intended to b
 
 - TypeScript source in `src/`
 - API entry in `api/`
-- Static pages in `public/`
+- Static workbench pages and assets in `public/`
 - Project docs and local verification scripts
 - `package.json`, `package-lock.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `tsconfig.json`, and `vercel.json`
 - `.env.example` with placeholder-only configuration

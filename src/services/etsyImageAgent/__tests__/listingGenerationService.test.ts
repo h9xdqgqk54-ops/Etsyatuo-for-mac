@@ -71,6 +71,15 @@ function mockGpt55Listing(content: unknown): ReturnType<typeof vi.fn> {
   return fetchMock;
 }
 
+function gpt55Response(content: unknown, requestId: string): Response {
+  return new Response(JSON.stringify({
+    choices: [{ message: { content: typeof content === "string" ? content : JSON.stringify(content) } }],
+  }), {
+    status: 200,
+    headers: { "x-request-id": requestId },
+  });
+}
+
 async function overwriteApprovedOutputWithLargePng(root: string, fileName = "item-1.png"): Promise<string> {
   const filePath = path.join(root, "图片输出", fileName);
   await sharp({
@@ -283,5 +292,161 @@ describe("listing generation service", () => {
       code: "GPT55_IMAGE_TOO_LARGE",
     });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses a Chinese suggestion to revise English listing copy and style names through GPT5.5", async () => {
+    const root = setupListingRoot();
+    const batchId = writeDesktopBatch(root, ["approved", "approved"]);
+    const workbench = await import("../productWorkbenchService.js");
+    workbench.updateProductWorkbenchImageMetas(batchId, [
+      { itemId: "item_0", color: "green and yellow", material: "soft plush and cotton rope", note: "stingray pet chew toy" },
+      { itemId: "item_1", color: "gray and white", material: "crochet plush yarn", note: "sitting puppy plush" },
+    ]);
+    workbench.updateProductWorkbenchStyleNames(batchId, [
+      { itemId: "item_0", styleNameEn: "Green Stingray" },
+      { itemId: "item_1", styleNameEn: "Gray Puppy" },
+    ]);
+    const revised = {
+      title: "Pet Plush Chew Toys, Soft Rope Animal Toys for Dogs",
+      description: "Designed for cozy pet play and giftable shop photos, this set features soft plush animal toys with visible rope accents, gentle stitched details, and playful color differences. The green stingray style blends yellow fabric texture with a cotton rope tail, while the gray puppy style adds a handmade plush look for a warm, playful display.",
+      keywords: [
+        "dog chew toy",
+        "pet plush toy",
+        "puppy toy",
+        "rope dog toy",
+        "soft pet toy",
+        "animal dog toy",
+        "dog gift",
+        "plush chew toy",
+        "cute dog toy",
+        "small dog toy",
+        "pet supplies",
+        "dog birthday",
+        "puppy gift",
+      ],
+      styles: [
+        { itemId: "item_0", styleNameEn: "Green Ray Toy" },
+        { itemId: "item_1", styleNameEn: "Gray Pup Toy" },
+      ],
+    };
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(async (_url: string, init: RequestInit) => {
+        expect(String(init.body)).toContain("fake-vision-model");
+        return gpt55Response(listingJson(), "req_initial_listing");
+      })
+      .mockImplementationOnce(async (_url: string, init: RequestInit) => {
+        const body = String(init.body);
+        expect(body).toContain("请突出宠物咬咬玩具");
+        expect(body).toContain("All revised output fields must be English");
+        expect(body).toContain("Green Stingray");
+        expect(body).toContain("Gray Puppy");
+        return gpt55Response(revised, "req_revision");
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const service = await import("../listingGenerationService.js");
+
+    const record = await service.finalizeBatchListing(batchId);
+    const result = await service.reviseProductListingWithSuggestion(record.listingId, {
+      suggestion: "请突出宠物咬咬玩具，标题不要写 nursery，关键词增加 dog chew toy，款式名更短。",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.listing).toMatchObject({
+      listingId: record.listingId,
+      status: "edited",
+      title: revised.title,
+      promptProviderRequestId: "req_revision",
+    });
+    expect(result.listing.keywords).toEqual(revised.keywords);
+    expect(result.workbench.imageMetas).toEqual([
+      expect.objectContaining({ itemId: "item_0", styleNameEn: "Green Ray Toy", styleNameSource: "gpt55" }),
+      expect.objectContaining({ itemId: "item_1", styleNameEn: "Gray Pup Toy", styleNameSource: "gpt55" }),
+    ]);
+    const listingText = fs.readFileSync(record.outputFilePath, "utf-8");
+    expect(listingText).toContain(revised.title);
+    expect(listingText).toContain("dog chew toy");
+  });
+
+  it("rejects non-English GPT5.5 revisions without overwriting existing listing or style names", async () => {
+    const root = setupListingRoot();
+    const batchId = writeDesktopBatch(root);
+    const workbench = await import("../productWorkbenchService.js");
+    workbench.updateProductWorkbenchStyleNames(batchId, [{ itemId: "item_0", styleNameEn: "Pink Bunny" }]);
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(async () => gpt55Response(listingJson(), "req_initial_listing"))
+      .mockImplementationOnce(async () => gpt55Response({
+        title: "中文标题",
+        description: "This should not be saved.",
+        keywords: listingJson().keywords,
+        styles: [{ itemId: "item_0", styleNameEn: "中文款式" }],
+      }, "req_bad_revision"));
+    vi.stubGlobal("fetch", fetchMock);
+    const service = await import("../listingGenerationService.js");
+    const record = await service.finalizeBatchListing(batchId);
+
+    await expect(service.reviseProductListingWithSuggestion(record.listingId, {
+      suggestion: "标题更可爱，但是输出必须英文。",
+    })).rejects.toMatchObject({ code: "GPT55_LISTING_REVISION_PARSE_FAILED" });
+
+    expect(service.findProductListingRecord(record.listingId)).toMatchObject({
+      title: record.title,
+      status: "generated",
+    });
+    expect(workbench.getProductWorkbench(batchId).imageMetas[0]).toMatchObject({
+      styleNameEn: "Pink Bunny",
+      styleNameSource: "manual",
+    });
+    expect(fs.readFileSync(record.outputFilePath, "utf-8")).toContain(record.title);
+    expect(fs.readFileSync(record.outputFilePath, "utf-8")).not.toContain("中文标题");
+  });
+
+  it("rejects incomplete GPT5.5 style revisions before writing listing files", async () => {
+    const root = setupListingRoot();
+    const batchId = writeDesktopBatch(root, ["approved", "approved"]);
+    const workbench = await import("../productWorkbenchService.js");
+    workbench.updateProductWorkbenchStyleNames(batchId, [
+      { itemId: "item_0", styleNameEn: "Pink Bunny" },
+      { itemId: "item_1", styleNameEn: "Gray Bunny" },
+    ]);
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(async () => gpt55Response(listingJson(), "req_initial_listing"))
+      .mockImplementationOnce(async () => gpt55Response({
+        title: "Dog Plush Chew Toy with Soft Rope Detail",
+        description: "A soft plush dog toy with a gentle rope accent for playful pet gift photos.",
+        keywords: [
+          "dog chew toy",
+          "pet plush toy",
+          "puppy toy",
+          "rope dog toy",
+          "soft pet toy",
+          "animal dog toy",
+          "dog gift",
+          "plush chew toy",
+          "cute dog toy",
+          "small dog toy",
+          "pet supplies",
+          "dog birthday",
+          "puppy gift",
+        ],
+        styles: [{ itemId: "item_0", styleNameEn: "Dog Rope Toy" }],
+      }, "req_incomplete_revision"));
+    vi.stubGlobal("fetch", fetchMock);
+    const service = await import("../listingGenerationService.js");
+    const record = await service.finalizeBatchListing(batchId);
+
+    await expect(service.reviseProductListingWithSuggestion(record.listingId, {
+      suggestion: "请改成宠物玩具方向，全部输出英文。",
+    })).rejects.toMatchObject({ code: "GPT55_LISTING_REVISION_STYLE_MISMATCH" });
+
+    expect(service.findProductListingRecord(record.listingId)).toMatchObject({
+      title: record.title,
+      status: "generated",
+    });
+    expect(workbench.getProductWorkbench(batchId).imageMetas).toEqual([
+      expect.objectContaining({ itemId: "item_0", styleNameEn: "Pink Bunny", styleNameSource: "manual" }),
+      expect.objectContaining({ itemId: "item_1", styleNameEn: "Gray Bunny", styleNameSource: "manual" }),
+    ]);
+    expect(fs.readFileSync(record.outputFilePath, "utf-8")).toContain(record.title);
+    expect(fs.readFileSync(record.outputFilePath, "utf-8")).not.toContain("Dog Plush Chew Toy");
   });
 });

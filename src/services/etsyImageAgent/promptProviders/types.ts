@@ -55,6 +55,17 @@ export interface GenerateListingCopyResult {
   doubaoRequestId?: string;
 }
 
+export interface ReviseListingCopyInput {
+  batchId: string;
+  suggestion: string;
+  currentListing: {
+    title: string;
+    description: string;
+    keywords: string[];
+  };
+  imageMetas?: ListingCopyImageMetaInput[];
+}
+
 export interface StyleNameImageInput {
   itemId: string;
   inputFileName: string;
@@ -86,31 +97,14 @@ export interface GenerateStyleNamesResult {
   doubaoRequestId?: string;
 }
 
-export interface GenerateImageMetasInput {
-  batchId: string;
-  images: StyleNameImageInput[];
-}
-
-export interface ProductImageMetaResult {
-  itemId: string;
-  color: string;
-  size: string;
-  material: string;
-  note: string;
-}
-
-export interface GenerateImageMetasResult {
-  imageMetas: ProductImageMetaResult[];
-  model: string;
-  providerTraceId?: string;
-  promptProviderRequestId?: string;
-  doubaoRequestId?: string;
+export interface ReviseListingCopyResult extends GenerateListingCopyResult {
+  styles: ProductStyleNameResult[];
 }
 
 export interface PromptProvider {
   id: "gpt55" | "doubao";
   generatePrompt(input: GeneratePromptInput): Promise<GeneratePromptResult>;
   generateListingCopy(input: GenerateListingCopyInput): Promise<GenerateListingCopyResult>;
+  reviseListingCopy(input: ReviseListingCopyInput): Promise<ReviseListingCopyResult>;
   generateStyleNames(input: GenerateStyleNamesInput): Promise<GenerateStyleNamesResult>;
-  generateImageMetas(input: GenerateImageMetasInput): Promise<GenerateImageMetasResult>;
 }

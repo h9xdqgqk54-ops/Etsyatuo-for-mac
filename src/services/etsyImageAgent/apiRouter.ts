@@ -9,8 +9,8 @@ import { approveDesktopBatchItem, approvePromptAndGenerateImage, cleanupPendingD
 import { getImageAgentFolderSettings, saveImageAgentFolderSettings } from "./folderSettings.js";
 import { findGroupSession, mergeGroups, moveImageBetweenGroups, renameGroup, saveGroupSession, setGroupLocked, setGroupMainImage, splitGroup } from "./groupSessionStore.js";
 import { findInputAsset } from "./inputAssetRegistry.js";
-import { finalizeBatchListing, listProductListingRecords, regenerateProductListingRecord, updateProductListingRecord } from "./listingGenerationService.js";
-import { generateProductWorkbenchImageMetas, generateProductWorkbenchStyleNames, getProductWorkbench, syncProductWorkbench, updateProductWorkbenchImageMetas, updateProductWorkbenchStyleNames } from "./productWorkbenchService.js";
+import { finalizeBatchListing, listProductListingRecords, regenerateProductListingRecord, reviseProductListingWithSuggestion, updateProductListingRecord } from "./listingGenerationService.js";
+import { generateProductWorkbenchStyleNames, getProductWorkbench, syncProductWorkbench, updateProductWorkbenchStyleNames } from "./productWorkbenchService.js";
 import { clearStalePromptProviderFailures, generatePromptsFromImages, listImagePromptRecords, regenerateImagePromptRecord, saveManualImagePromptRecord, updateImagePromptRecord } from "./promptGenerationService.js";
 import { runRealImageSmokeTest } from "./realSmokeTest.js";
 import { cancelTask, createEtsyAgentTask, getTask, getTasks, regenerateAsset, retryTask, retryTaskProduct } from "./taskQueue.js";
@@ -208,6 +208,13 @@ export async function handleEtsyAgentRoute(req: http.IncomingMessage, res: http.
       return json(res, 200, { ok: true, data: record });
     }
 
+    const listingReviseMatch = pathname.match(/^\/api\/etsy-agent\/listings\/([^/]+)\/revise-with-suggestion$/);
+    if (method === "POST" && listingReviseMatch) {
+      const body = parseJsonBody<{ suggestion?: string }>(await readRawBody(req, etsyAgentConfig.maxJsonBodyBytes));
+      const result = await reviseProductListingWithSuggestion(decodeURIComponent(listingReviseMatch[1]!), body);
+      return json(res, 200, { ok: true, data: result });
+    }
+
     if (method === "POST" && pathname === "/api/etsy-agent/desktop-batch/start") {
       const rawBody = await readRawBody(req, etsyAgentConfig.maxJsonBodyBytes);
       const body = rawBody.length > 0 ? parseJsonBody<{ confirmedCostRisk?: boolean }>(rawBody) : {};
@@ -226,16 +233,13 @@ export async function handleEtsyAgentRoute(req: http.IncomingMessage, res: http.
     }
 
     const desktopWorkbenchImageMetasMatch = pathname.match(/^\/api\/etsy-agent\/desktop-batch\/([^/]+)\/workbench\/image-metas$/);
-    if (method === "PATCH" && desktopWorkbenchImageMetasMatch) {
-      const body = parseJsonBody<{ metas?: Array<{ itemId: string; color?: string; size?: string; material?: string; note?: string }> }>(await readRawBody(req, etsyAgentConfig.maxJsonBodyBytes));
-      const record = updateProductWorkbenchImageMetas(decodeURIComponent(desktopWorkbenchImageMetasMatch[1]!), body.metas ?? []);
-      return json(res, 200, { ok: true, data: record });
+    if (desktopWorkbenchImageMetasMatch) {
+      return json(res, 410, { ok: false, error: "PRODUCT_IMAGE_META_ENDPOINT_REMOVED：该旧接口已移除，请使用款式英文名和 Listing 建议改写流程。" });
     }
 
     const desktopWorkbenchGenerateImageMetasMatch = pathname.match(/^\/api\/etsy-agent\/desktop-batch\/([^/]+)\/workbench\/image-metas\/generate$/);
-    if (method === "POST" && desktopWorkbenchGenerateImageMetasMatch) {
-      const record = await generateProductWorkbenchImageMetas(decodeURIComponent(desktopWorkbenchGenerateImageMetasMatch[1]!));
-      return json(res, 200, { ok: true, data: record });
+    if (desktopWorkbenchGenerateImageMetasMatch) {
+      return json(res, 410, { ok: false, error: "PRODUCT_IMAGE_META_ENDPOINT_REMOVED：该旧接口已移除，请使用款式英文名和 Listing 建议改写流程。" });
     }
 
     const desktopWorkbenchStyleNamesMatch = pathname.match(/^\/api\/etsy-agent\/desktop-batch\/([^/]+)\/workbench\/style-names$/);
@@ -358,7 +362,7 @@ export async function handleEtsyAgentRoute(req: http.IncomingMessage, res: http.
 
     const taskDownloadMatch = pathname.match(/^\/api\/etsy-agent\/tasks\/([^/]+)\/download$/);
     if (method === "GET" && taskDownloadMatch) {
-      return json(res, 410, { ok: false, error: "LEGACY_TASK_FLOW_REMOVED：当前图片 Agent 使用素材库下载单张候选图。" });
+      return json(res, 410, { ok: false, error: "LEGACY_TASK_FLOW_REMOVED：当前图片 Agent 使用图片审核区保存候选图。" });
     }
 
     if (method === "GET" && pathname === "/api/etsy-agent/assets") {

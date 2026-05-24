@@ -3,7 +3,7 @@ import { fetchWithTimeout, readResponseTextLimited } from "../httpUtils.js";
 import { getEffectiveGpt55PromptSettings, sanitizeProviderError, type EffectiveGpt55PromptSettings } from "../secureConfig.js";
 import { structuredError } from "../structuredErrors.js";
 import type { ImagePromptRole } from "../types.js";
-import type { GenerateImageMetasInput, GenerateImageMetasResult, GenerateListingCopyInput, GenerateListingCopyResult, GeneratePromptInput, GeneratePromptResult, GenerateStyleNamesInput, GenerateStyleNamesResult, ListingCopyImageInput, PromptProvider } from "./types.js";
+import type { GenerateListingCopyInput, GenerateListingCopyResult, GeneratePromptInput, GeneratePromptResult, GenerateStyleNamesInput, GenerateStyleNamesResult, ListingCopyImageInput, PromptProvider, ReviseListingCopyInput, ReviseListingCopyResult } from "./types.js";
 
 const SUPPORTED_PROMPT_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const GPT55_PROMPT_TIMEOUT_MS = 120_000;
@@ -94,6 +94,51 @@ export const gpt55PromptProvider: PromptProvider = {
       });
     }
   },
+  async reviseListingCopy(input): Promise<ReviseListingCopyResult> {
+    const settings = getEffectiveGpt55PromptSettings();
+    assertGpt55PromptConfig(settings);
+    if (!input.suggestion.trim()) {
+      throw structuredError({
+        code: "LISTING_REVISION_SUGGESTION_REQUIRED",
+        message: "LISTING_REVISION_SUGGESTION_REQUIRED：请输入中文修改建议。",
+        provider: "gpt55",
+        model: settings.model,
+      });
+    }
+    const requestBody = buildGpt55ListingRevisionRequest(input, settings);
+    let requestId: string | undefined;
+    try {
+      const response = await fetchWithTimeout(chatCompletionsUrl(settings.baseURL), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${settings.apiKey}`,
+        },
+        body: JSON.stringify(requestBody),
+      }, "GPT5.5 Etsy 商品文案建议改写", GPT55_PROMPT_TIMEOUT_MS);
+      requestId = response.headers.get("x-request-id") ?? response.headers.get("x-tt-logid") ?? undefined;
+      const text = await readResponseTextLimited(response, "GPT5.5 Etsy 商品文案建议改写响应", 1024 * 1024);
+      if (!response.ok) throw Gpt55PromptHttpError(response.status, text, requestId);
+      const content = extractGpt55MessageContent(text, requestId);
+      const parsed = parseGpt55ListingRevisionJson(content, requestId);
+      return {
+        ...parsed,
+        model: settings.model,
+        providerTraceId: requestId,
+        promptProviderRequestId: requestId,
+      };
+    } catch (error) {
+      if (isKnownStructuredPromptError(error)) throw error;
+      throw structuredError({
+        code: "GPT55_LISTING_REVISION_FAILED",
+        message: "GPT55_LISTING_REVISION_FAILED：GPT5.5按人工建议改写商品信息失败。",
+        provider: "gpt55",
+        model: settings.model,
+        requestId,
+        reason: sanitizeProviderError(error),
+      });
+    }
+  },
   async generateStyleNames(input): Promise<GenerateStyleNamesResult> {
     const settings = getEffectiveGpt55PromptSettings();
     assertGpt55PromptConfig(settings);
@@ -133,52 +178,6 @@ export const gpt55PromptProvider: PromptProvider = {
       throw structuredError({
         code: "GPT55_STYLE_NAME_GENERATION_FAILED",
         message: "GPT55_STYLE_NAME_GENERATION_FAILED：GPT5.5生成商品款式英文名失败。",
-        provider: "gpt55",
-        model: settings.model,
-        requestId,
-        reason: sanitizeProviderError(error),
-      });
-    }
-  },
-  async generateImageMetas(input): Promise<GenerateImageMetasResult> {
-    const settings = getEffectiveGpt55PromptSettings();
-    assertGpt55PromptConfig(settings);
-    if (input.images.length === 0) {
-      throw structuredError({
-        code: "LISTING_APPROVED_IMAGE_REQUIRED",
-        message: "LISTING_APPROVED_IMAGE_REQUIRED：至少需要 1 张已通过并输出的图片才能生成图片配对信息。",
-        provider: "gpt55",
-        model: settings.model,
-      });
-    }
-    input.images.forEach((image) => validateListingImage(image, settings));
-    const requestBody = buildGpt55ImageMetasRequest(input, settings);
-    let requestId: string | undefined;
-    try {
-      const response = await fetchWithTimeout(chatCompletionsUrl(settings.baseURL), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${settings.apiKey}`,
-        },
-        body: JSON.stringify(requestBody),
-      }, "GPT5.5商品图片信息配对", GPT55_PROMPT_TIMEOUT_MS);
-      requestId = response.headers.get("x-request-id") ?? response.headers.get("x-tt-logid") ?? undefined;
-      const text = await readResponseTextLimited(response, "GPT5.5商品图片信息配对响应", 1024 * 1024);
-      if (!response.ok) throw Gpt55PromptHttpError(response.status, text, requestId);
-      const content = extractGpt55MessageContent(text, requestId);
-      const parsed = parseGpt55ImageMetasJson(content, requestId);
-      return {
-        ...parsed,
-        model: settings.model,
-        providerTraceId: requestId,
-        promptProviderRequestId: requestId,
-      };
-    } catch (error) {
-      if (isKnownStructuredPromptError(error)) throw error;
-      throw structuredError({
-        code: "GPT55_IMAGE_META_GENERATION_FAILED",
-        message: "GPT55_IMAGE_META_GENERATION_FAILED：GPT5.5生成图片配对信息失败。",
         provider: "gpt55",
         model: settings.model,
         requestId,
@@ -249,6 +248,46 @@ export function buildGpt55ListingCopyRequest(input: GenerateListingCopyInput, se
   };
 }
 
+export function buildGpt55ListingRevisionRequest(input: ReviseListingCopyInput, settings = getEffectiveGpt55PromptSettings()): Record<string, unknown> {
+  const revisionContext = {
+    currentListing: {
+      title: input.currentListing.title,
+      description: input.currentListing.description,
+      keywords: input.currentListing.keywords,
+    },
+    imageMetas: input.imageMetas ?? [],
+  };
+  return {
+    model: settings.model,
+    messages: [
+      { role: "system", content: Gpt55ListingRevisionSystemPrompt() },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: [
+              `batchId: ${input.batchId}`,
+              "Chinese user suggestion:",
+              input.suggestion,
+              "",
+              "Current listing and style context JSON:",
+              JSON.stringify(revisionContext, null, 2),
+              "",
+              "All revised output fields must be English. Understand the Chinese suggestion, but do not output Chinese characters in title, description, keywords, or styleNameEn.",
+              "Keep the Etsy keyword rule: exactly 13 keywords, each keyword at most 20 characters including spaces.",
+              "For every imageMetas item, return one styles entry with the same itemId and an English styleNameEn at most 20 characters.",
+              "Return only JSON. Do not explain.",
+              'JSON fields: {"title":"...","description":"...","keywords":["keyword 1"],"styles":[{"itemId":"...","styleNameEn":"..."}]}',
+            ].join("\n"),
+          },
+        ],
+      },
+    ],
+    temperature: 0.2,
+  };
+}
+
 export function buildGpt55StyleNamesRequest(input: GenerateStyleNamesInput, settings = getEffectiveGpt55PromptSettings()): Record<string, unknown> {
   const content: Array<Record<string, unknown>> = [];
   for (const image of input.images) {
@@ -285,50 +324,6 @@ export function buildGpt55StyleNamesRequest(input: GenerateStyleNamesInput, sett
     model: settings.model,
     messages: [
       { role: "system", content: Gpt55StyleNamesSystemPrompt() },
-      { role: "user", content },
-    ],
-    temperature: 0.2,
-  };
-}
-
-export function buildGpt55ImageMetasRequest(input: GenerateImageMetasInput, settings = getEffectiveGpt55PromptSettings()): Record<string, unknown> {
-  const content: Array<Record<string, unknown>> = [];
-  for (const image of input.images) {
-    content.push({
-      type: "image_url",
-      image_url: { url: imageDataUrl(image.filePath, image.mimeType) },
-    });
-    content.push({
-      type: "text",
-      text: [
-        `itemId=${image.itemId}`,
-        `inputFileName=${image.inputFileName}`,
-        `outputFileName=${image.outputFileName}`,
-        `existingColor=${image.color || "not specified"}`,
-        `existingSize=${image.size || "not specified"}`,
-        `existingMaterial=${image.material || "not specified"}`,
-        `existingNote=${image.note || "not specified"}`,
-      ].join("\n"),
-    });
-  }
-  content.push({
-    type: "text",
-    text: [
-      `batchId: ${input.batchId}`,
-      "请逐张读取商品图片，为每个 itemId 生成基础图片配对信息 imageMetas。",
-      "字段要求：color、size、material、note 都用简洁英文短语，方便 Etsy listing 人工审核。",
-      "color 写图片可确认的主色、花色或图案；material 写图片可确认或高度可见的材质，例如 soft plush fabric。",
-      "size 只能写图片或已有信息能确认的尺寸；无法确认时返回空字符串，不要编造精确数字。",
-      "note 写一句短备注，说明款式差异或可见细节，不要写价格、品牌、物流或图片中无法确认的信息。",
-      "如果已有字段存在，可以参考但不要在 JSON 中省略该 itemId。",
-      "请只返回 JSON，不要解释。",
-      'JSON 字段：{"imageMetas":[{"itemId":"...","color":"...","size":"...","material":"...","note":"..."}]}',
-    ].join("\n"),
-  });
-  return {
-    model: settings.model,
-    messages: [
-      { role: "system", content: Gpt55ImageMetasSystemPrompt() },
       { role: "user", content },
     ],
     temperature: 0.2,
@@ -389,6 +384,48 @@ export function parseGpt55ListingCopyJson(content: string, requestId?: string): 
   }
 }
 
+export function parseGpt55ListingRevisionJson(content: string, requestId?: string): Omit<ReviseListingCopyResult, "model" | "providerTraceId" | "promptProviderRequestId"> {
+  const jsonText = extractJsonText(content);
+  try {
+    const parsed = JSON.parse(jsonText) as Record<string, unknown>;
+    const title = stringField(parsed.title);
+    const description = stringField(parsed.description);
+    const colors = stringOrArrayField(parsed.colors);
+    const sizeInfo = stringField(parsed.sizeInfo) || stringField(parsed.size);
+    const materials = stringOrArrayField(parsed.materials);
+    const keywords = normalizeListingKeywords(parsed.keywords);
+    if (!title) throw new Error("title missing");
+    if (!description) throw new Error("description missing");
+    if (containsCjk(title)) throw new Error("title must be English");
+    if (containsCjk(description)) throw new Error("description must be English");
+    if (keywords.length !== 13) throw new Error(`keywords must contain exactly 13 items, got ${keywords.length}`);
+    const tooLong = keywords.find((keyword) => keyword.length > 20);
+    if (tooLong) throw new Error(`keyword exceeds 20 characters: ${tooLong}`);
+    const cjkKeyword = keywords.find((keyword) => containsCjk(keyword));
+    if (cjkKeyword) throw new Error(`keyword must be English: ${cjkKeyword}`);
+    const rawStyles = Array.isArray(parsed.styles) ? parsed.styles : [];
+    if (rawStyles.length === 0) throw new Error("styles missing");
+    const styles = rawStyles.map((item) => {
+      const row = item as Record<string, unknown>;
+      const itemId = stringField(row.itemId);
+      const styleNameEn = normalizeStyleNameEn(row.styleNameEn);
+      if (!itemId) throw new Error("itemId missing");
+      if (!styleNameEn) throw new Error(`styleNameEn missing for ${itemId}`);
+      return { itemId, styleNameEn };
+    });
+    return { title, description, colors, sizeInfo, materials, keywords, styles };
+  } catch (error) {
+    throw structuredError({
+      code: "GPT55_LISTING_REVISION_PARSE_FAILED",
+      message: "GPT55_LISTING_REVISION_PARSE_FAILED：GPT5.5返回的建议改写结果不符合要求，标题、描述、关键词和款式名必须为英文。",
+      provider: "gpt55",
+      model: getEffectiveGpt55PromptSettings().model,
+      requestId,
+      reason: sanitizeProviderError(error),
+    });
+  }
+}
+
 export function parseGpt55StyleNamesJson(content: string, requestId?: string): Omit<GenerateStyleNamesResult, "model" | "providerTraceId" | "promptProviderRequestId"> {
   const jsonText = extractJsonText(content);
   try {
@@ -408,37 +445,6 @@ export function parseGpt55StyleNamesJson(content: string, requestId?: string): O
     throw structuredError({
       code: "GPT55_STYLE_NAME_PARSE_FAILED",
       message: "GPT55_STYLE_NAME_PARSE_FAILED：GPT5.5返回的商品款式英文名不是符合要求的 JSON，单个英文名必须不超过 20 个字符。",
-      provider: "gpt55",
-      model: getEffectiveGpt55PromptSettings().model,
-      requestId,
-      reason: sanitizeProviderError(error),
-    });
-  }
-}
-
-export function parseGpt55ImageMetasJson(content: string, requestId?: string): Omit<GenerateImageMetasResult, "model" | "providerTraceId" | "promptProviderRequestId"> {
-  const jsonText = extractJsonText(content);
-  try {
-    const parsed = JSON.parse(jsonText) as Record<string, unknown>;
-    const rawMetas = Array.isArray(parsed.imageMetas) ? parsed.imageMetas : [];
-    if (rawMetas.length === 0) throw new Error("imageMetas missing");
-    const imageMetas = rawMetas.map((item) => {
-      const row = item as Record<string, unknown>;
-      const itemId = stringField(row.itemId);
-      if (!itemId) throw new Error("itemId missing");
-      return {
-        itemId,
-        color: stringField(row.color),
-        size: stringField(row.size),
-        material: stringField(row.material),
-        note: stringField(row.note),
-      };
-    });
-    return { imageMetas };
-  } catch (error) {
-    throw structuredError({
-      code: "GPT55_IMAGE_META_PARSE_FAILED",
-      message: "GPT55_IMAGE_META_PARSE_FAILED：GPT5.5返回的图片配对信息不是符合要求的 JSON。",
       provider: "gpt55",
       model: getEffectiveGpt55PromptSettings().model,
       requestId,
@@ -699,20 +705,24 @@ function Gpt55ListingSystemPrompt(): string {
   ].join("\n");
 }
 
+function Gpt55ListingRevisionSystemPrompt(): string {
+  return [
+    "You are an Etsy English listing editor and style-name editor.",
+    "The user may write revision instructions in Chinese. Understand those instructions carefully.",
+    "All revised output must be English only: title, description, keywords, and styleNameEn.",
+    "Keep facts grounded in the provided current listing and image/style context. Do not invent brand authorization, origin, exact size, certification, or unsupported facts.",
+    "Naturally integrate color, size, material, usage, style, and gift context into the English description when supported by context.",
+    "keywords must contain exactly 13 Etsy search phrases, each at most 20 characters including spaces.",
+    "Each styleNameEn must be English ASCII and at most 20 characters including spaces.",
+    "Return only JSON. Do not output Markdown or explanations.",
+  ].join("\n");
+}
+
 function Gpt55StyleNamesSystemPrompt(): string {
   return [
     "你是 Etsy 商品款式英文命名助手。",
     "请根据每张商品图片生成简短英文款式名。",
     "每个 styleNameEn 必须最多 20 个字符，包含空格。",
-    "只输出 JSON，不要输出 Markdown 或解释。",
-  ].join("\n");
-}
-
-function Gpt55ImageMetasSystemPrompt(): string {
-  return [
-    "你是 Etsy 商品图片信息配对助手。",
-    "请根据每张商品图片整理颜色、尺寸、材质和备注，输出给人工审核。",
-    "只能基于图片可见信息和用户提供的已有字段，不要编造品牌、价格、精确尺寸或认证信息。",
     "只输出 JSON，不要输出 Markdown 或解释。",
   ].join("\n");
 }
@@ -772,6 +782,10 @@ function normalizeListingKeywords(value: unknown): string[] {
   return raw
     .map((keyword) => keyword.trim().replace(/\s+/g, " "))
     .filter(Boolean);
+}
+
+function containsCjk(value: string): boolean {
+  return /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]/.test(value);
 }
 
 function isKnownStructuredPromptError(error: unknown): boolean {

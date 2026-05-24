@@ -158,15 +158,14 @@ IMAGE_AGENT_ENABLE_REAL_GENERATION=true
 2. 点击“根据图片自动生成提示词”，GPT5.5 为缺失 prompt 的图片生成 `ImagePromptRecord`；也可以在单张卡片里手动填写并保存 prompt。
 3. 在前端逐张编辑 role、prompt、negative prompt，点击“保存修改”。
 4. 点击单张卡片的“通过并生成图片”，OpenAI 立即用同一张输入图和对应 prompt 快照调用 `images.edit`；连续点击多张会并发生成，互不阻塞。
-5. 生成结果先保存为素材库候选图；点击“通过并保存到输出文件夹”复制到输出目录并清理候选记录。
-6. 在商品工作台维护图片信息配对、款式英文名和 Etsy listing 文案。
+5. 生成结果先保存为内部候选图；点击“通过并保存到输出文件夹”复制到输出目录并清理候选记录。
+6. 在商品工作台维护款式英文名和 Etsy listing 文案，可用中文建议让 GPT5.5 统一优化英文输出。
 
 Prompt records 落盘在 `data/etsy-agent/prompt-records.json`，重启本地服务后不会丢失。批量重新生成会跳过人工 `edited` / `approved` 的记录；单张覆盖需要二次确认。
 
 ## 页面
 
 - `/etsy-image-agent`：主工作台，Prompt 生成、人工确认、OpenAI 生图和质检。
-- `/asset-library`：待审查候选素材库。
 - `/settings/openai`：Provider 状态页，显示 GPT5.5 Prompt Provider 和 OpenAI Image Provider 的脱敏配置状态。
 
 `/settings/openai` 也可以临时填写 `GPT55_API_KEY`、`GPT55_BASE_URL`、`GPT55_MODEL` 和 OpenAI 配置。浏览器只把这些值提交给本地后端，实际 GPT5.5 和 OpenAI 调用仍由后端完成；网页输入的 key 只保存在服务进程内存，重启后丢失。有效的 `.env` key 优先于网页 session key。
