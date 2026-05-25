@@ -17,7 +17,16 @@ dist/delivery/Etsyauto-Mac.zip
 3. 保持打开的终端窗口不要关闭，浏览器会自动进入 Etsyauto 图片 Agent 工作台。
 4. 在网页左侧选择图片输入/输出文件夹，在 `Provider 设置` 中填写自己的 GPT5.5 和 OpenAI Key。
 
+启动脚本会先做 Mac 自检：检查 Apple Silicon 架构、修复执行权限、尝试移除下载隔离属性，并确认 `public` 和 Mac 版 `sharp` 原生依赖都在同一个文件夹内。如果默认端口被占用，程序会自动切换到可用端口，并在终端里打印实际工作台 URL。
+
 如果 macOS 首次提示无法验证开发者，请在 Finder 里右键 `启动 Etsyauto.command`，选择“打开”。关闭终端窗口即可停止本地服务。不要把 `Etsyauto` 可执行文件单独拖出去运行，它需要同目录下的 `public` 和 `node_modules`。
+
+维护者重新打包后可以运行完整交付验证：
+
+```bash
+pnpm package:mac
+pnpm verify:mac
+```
 
 ## Windows 合作者安装运行指南
 

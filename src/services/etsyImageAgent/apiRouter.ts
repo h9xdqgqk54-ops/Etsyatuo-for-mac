@@ -22,7 +22,6 @@ import { parseJsonBody, parseMultipartImages } from "./uploadParser.js";
 import { safeJoin } from "./utils.js";
 
 initStorage();
-const createArchive = createLocalRequire()("archiver") as typeof archiverType;
 
 export function isEtsyAgentRoute(url: string): boolean {
   return url.startsWith("/api/etsy-agent/") || url === "/api/etsy-agent";
@@ -578,6 +577,11 @@ function createLocalRequire(): NodeJS.Require {
   } catch {
     return createRequire(path.join(process.cwd(), "package.json"));
   }
+}
+
+function createArchive(format: "zip", options: { zlib: { level: number } }): ReturnType<typeof archiverType> {
+  const archiver = createLocalRequire()("archiver") as typeof archiverType;
+  return archiver(format, options);
 }
 
 function streamDesktopBatchOutputImage(res: http.ServerResponse, batchId: string, itemId: string): true {

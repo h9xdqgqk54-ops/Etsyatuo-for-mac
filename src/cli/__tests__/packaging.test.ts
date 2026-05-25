@@ -21,8 +21,10 @@ describe("CLI launcher packaging", () => {
     };
 
     expect(packageJson.scripts?.["package:mac"]).toBe("node scripts/build-cli.mjs && node scripts/package-mac-cli.mjs && node scripts/package-mac-delivery.mjs");
+    expect(packageJson.scripts?.["verify:mac"]).toBe("node scripts/verify-mac-delivery.mjs");
     expect(fs.existsSync(path.resolve("scripts/package-mac-cli.mjs"))).toBe(true);
     expect(fs.existsSync(path.resolve("scripts/package-mac-delivery.mjs"))).toBe(true);
+    expect(fs.existsSync(path.resolve("scripts/verify-mac-delivery.mjs"))).toBe(true);
   });
 
   it("documents the direct-use Mac zip for Apple Silicon users", () => {
@@ -192,6 +194,35 @@ describe("CLI launcher packaging", () => {
     expect(deliveryScript).toContain("new ZipArchive");
   });
 
+  it("writes a macOS command launcher with preflight diagnostics and quarantine cleanup", () => {
+    const deliveryScript = fs.readFileSync(path.resolve("scripts/package-mac-delivery.mjs"), "utf-8");
+
+    expect(deliveryScript).toContain("Mac 自检失败");
+    expect(deliveryScript).toContain("uname -m");
+    expect(deliveryScript).toContain("arm64");
+    expect(deliveryScript).toContain("xattr -dr com.apple.quarantine");
+    expect(deliveryScript).toContain("REQUIRED_FILES");
+    expect(deliveryScript).toContain("public/etsy-image-agent.html");
+    expect(deliveryScript).toContain("sharp-darwin-arm64.node");
+    expect(deliveryScript).toContain("ETSYAUTO_NO_PAUSE");
+    expect(deliveryScript).toContain("exit_code=$?");
+    expect(deliveryScript).not.toContain("status=$?");
+    expect(deliveryScript).toContain("按回车");
+  });
+
+  it("ships a macOS delivery verifier that unzips and checks the runnable workbench", () => {
+    const script = fs.readFileSync(path.resolve("scripts/verify-mac-delivery.mjs"), "utf-8");
+
+    expect(script).toContain("Etsyauto-Mac.zip");
+    expect(script).toContain("启动 Etsyauto.command");
+    expect(script).toContain("--port");
+    expect(script).toContain("0");
+    expect(script).toContain("/etsy-image-agent");
+    expect(script).toContain("/settings/openai");
+    expect(script).toContain("ETSYAUTO_NO_PAUSE");
+    expect(script).toContain("require('sharp')");
+  });
+
   it("keeps sharp native loading out of modules imported during server startup", () => {
     const startupFiles = [
       "src/services/etsyImageAgent/imageProcessing.ts",
@@ -206,5 +237,13 @@ describe("CLI launcher packaging", () => {
       expect(source, file).not.toMatch(/from\s+["']sharp["']/);
       expect(source, file).not.toMatch(/require\(["']sharp["']\)/);
     }
+  });
+
+  it("keeps archiver loading lazy so packaged desktop startup does not require zip dependencies", () => {
+    const apiRouter = fs.readFileSync(path.resolve("src/services/etsyImageAgent/apiRouter.ts"), "utf-8");
+
+    expect(apiRouter).not.toContain('const createArchive = createLocalRequire()("archiver")');
+    expect(apiRouter).toContain("function createArchive");
+    expect(apiRouter).toContain('createLocalRequire()("archiver")');
   });
 });

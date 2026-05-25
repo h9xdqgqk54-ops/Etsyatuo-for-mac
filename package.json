@@ -13,6 +13,7 @@
     "package:mac": "node scripts/build-cli.mjs && node scripts/package-mac-cli.mjs && node scripts/package-mac-delivery.mjs",
     "package:win": "node scripts/build-cli.mjs && node scripts/package-win-cli.mjs && node scripts/package-windows-delivery.mjs",
     "verify:local": "tsx scripts/verify-local.ts",
+    "verify:mac": "node scripts/verify-mac-delivery.mjs",
     "package:source": "node scripts/package-source.mjs"
   },
   "keywords": [],

@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import * as nodeModule from "node:module";
+import type { ListeningEtsyautoServer, ListenEtsyautoServerOptions } from "../services/app_server.js";
 
 export interface LauncherArgs {
   host: string;
@@ -29,6 +30,14 @@ export interface SidecarNodeModuleResolutionOptions {
   isPkg?: boolean;
   moduleGlobalPaths?: string[];
   platform?: NodeJS.Platform;
+}
+
+export type EtsyautoServerListener = (options: ListenEtsyautoServerOptions) => Promise<ListeningEtsyautoServer>;
+
+export interface PortFallbackResult {
+  fallbackUsed: boolean;
+  listening: ListeningEtsyautoServer;
+  requestedPort: number;
 }
 
 export function parseLauncherArgs(argv: string[]): LauncherArgs {
@@ -157,6 +166,28 @@ export function helpText(): string {
   ].join("\n");
 }
 
+export function isAddressInUseError(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && (error as NodeJS.ErrnoException).code === "EADDRINUSE");
+}
+
+export async function listenWithPortFallback(listener: EtsyautoServerListener, options: ListenEtsyautoServerOptions): Promise<PortFallbackResult> {
+  const requestedPort = options.port ?? 3456;
+  try {
+    return {
+      fallbackUsed: false,
+      listening: await listener(options),
+      requestedPort,
+    };
+  } catch (error) {
+    if (!isAddressInUseError(error) || requestedPort === 0) throw error;
+    return {
+      fallbackUsed: true,
+      listening: await listener({ ...options, port: 0 }),
+      requestedPort,
+    };
+  }
+}
+
 export async function runCliLauncher(argv = process.argv.slice(2)): Promise<void> {
   const args = parseLauncherArgs(argv);
   if (args.showHelp) {
@@ -167,10 +198,11 @@ export async function runCliLauncher(argv = process.argv.slice(2)): Promise<void
   const portable = applyPortableEnvironment();
   applySidecarNodeModuleResolution();
   const { listenEtsyautoServer } = await import("../services/app_server.js");
-  const listening = await listenEtsyautoServer({ host: args.host, port: args.port, log: false });
+  const { fallbackUsed, listening, requestedPort } = await listenWithPortFallback(listenEtsyautoServer, { host: args.host, port: args.port, log: false });
   const workbenchUrl = `${listening.url}/etsy-image-agent`;
   console.log("");
   console.log("Etsyauto 图片 Agent 已启动");
+  if (fallbackUsed) console.log(`端口 ${requestedPort} 被占用，已自动切换到 ${listening.port}。`);
   console.log(`工作台: ${workbenchUrl}`);
   console.log(`数据目录: ${portable.ETSY_AGENT_DATA_PATH}`);
   console.log(`素材目录: ${portable.ETSY_AGENT_STORAGE_PATH}`);

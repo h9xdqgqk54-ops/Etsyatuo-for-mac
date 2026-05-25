@@ -7,6 +7,7 @@ import {
   buildSidecarNodeModulesPath,
   buildBrowserOpenCommand,
   buildPortableEnvironment,
+  listenWithPortFallback,
   parseLauncherArgs,
 } from "../launcher.js";
 
@@ -98,5 +99,29 @@ describe("CLI launcher", () => {
     expect(env.NODE_PATH?.split(";")[0]).toBe(sidecarNodeModules);
     expect(globalPaths[0]).toBe(sidecarNodeModules);
     expect(initPathsCalled).toBe(true);
+  });
+
+  it("falls back to a random port when the default port is already in use", async () => {
+    const requestedPorts: number[] = [];
+    const result = await listenWithPortFallback(async (options) => {
+      requestedPorts.push(options.port ?? -1);
+      if (options.port === 3456) {
+        const error = new Error("Port is busy") as NodeJS.ErrnoException;
+        error.code = "EADDRINUSE";
+        throw error;
+      }
+      return {
+        close: async () => {},
+        host: "127.0.0.1",
+        port: 51234,
+        server: {} as never,
+        url: "http://127.0.0.1:51234",
+      };
+    }, { host: "127.0.0.1", port: 3456, log: false });
+
+    expect(requestedPorts).toEqual([3456, 0]);
+    expect(result.fallbackUsed).toBe(true);
+    expect(result.requestedPort).toBe(3456);
+    expect(result.listening.url).toBe("http://127.0.0.1:51234");
   });
 });
