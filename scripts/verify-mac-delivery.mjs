@@ -55,6 +55,30 @@ function httpStatus(url) {
   });
 }
 
+function httpJson(url) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(url, { method: "GET", timeout: 5000 }, (res) => {
+      let body = "";
+      res.setEncoding("utf8");
+      res.on("data", (chunk) => {
+        body += chunk;
+      });
+      res.on("end", () => {
+        try {
+          resolve({ status: res.statusCode ?? 0, json: JSON.parse(body) });
+        } catch (error) {
+          reject(new Error(`Invalid JSON from ${url}: ${error instanceof Error ? error.message : String(error)}\n${body}`));
+        }
+      });
+    });
+    req.on("error", reject);
+    req.on("timeout", () => {
+      req.destroy(new Error(`HTTP timeout: ${url}`));
+    });
+    req.end();
+  });
+}
+
 function waitForWorkbenchUrl(child) {
   let output = "";
   let settled = false;
@@ -123,13 +147,6 @@ async function main() {
     assertExists(path.join(packageDir, "node_modules", "sharp", "lib", "sharp.js"), "sharp JavaScript package");
     assertExists(path.join(packageDir, "node_modules", "@img", "sharp-darwin-arm64", "lib", "sharp-darwin-arm64.node"), "sharp darwin arm64 native module");
 
-    run(process.execPath, ["-e", "require('sharp'); console.log('sharp ok')"], {
-      env: {
-        ...process.env,
-        NODE_PATH: path.join(packageDir, "node_modules"),
-      },
-    });
-
     const child = spawn(commandPath, ["--no-open", "--port", "0"], {
       cwd: packageDir,
       detached: true,
@@ -152,10 +169,15 @@ async function main() {
     try {
       const { url: workbenchUrl } = await waitForWorkbenchUrl(child);
       const settingsUrl = new URL("/settings/openai", workbenchUrl).toString();
+      const sharpUrl = new URL("/api/etsy-agent/diagnostics/sharp", workbenchUrl).toString();
       const workbenchStatus = await httpStatus(workbenchUrl);
       const settingsStatus = await httpStatus(settingsUrl);
+      const sharpStatus = await httpJson(sharpUrl);
       if (workbenchStatus !== 200) fail(`/etsy-image-agent returned ${workbenchStatus}`);
       if (settingsStatus !== 200) fail(`/settings/openai returned ${settingsStatus}`);
+      if (sharpStatus.status !== 200 || !sharpStatus.json?.ok || !sharpStatus.json?.data?.sharpLoaded) {
+        fail(`/api/etsy-agent/diagnostics/sharp failed: ${JSON.stringify(sharpStatus)}`);
+      }
       console.log(`Mac delivery verified: ${zipPath}`);
       console.log(`Workbench URL: ${workbenchUrl}`);
     } finally {

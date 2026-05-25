@@ -97,6 +97,18 @@ describe("OpenAI-only settings API routes", () => {
     });
   });
 
+  it("exposes a local sharp diagnostic endpoint for packaged Mac verification", async () => {
+    setupEnv();
+    await withServer(async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/etsy-agent/diagnostics/sharp`);
+      const json = await response.json() as { ok: boolean; data: { sharpLoaded: boolean; format: string } };
+      expect(response.status).toBe(200);
+      expect(json.ok).toBe(true);
+      expect(json.data.sharpLoaded).toBe(true);
+      expect(json.data.format).toBe("png");
+    });
+  });
+
   it("uses recommended GPT5.5 vision model when .env still has a placeholder model", async () => {
     setupEnv();
     process.env.GPT55_MODEL = "your_gpt55_model_here";

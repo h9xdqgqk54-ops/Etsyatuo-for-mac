@@ -187,6 +187,9 @@ describe("CLI launcher packaging", () => {
     expect(packageScript).toContain("scripts/package-mac-delivery.mjs");
     expect(deliveryScript).toContain("启动 Etsyauto.command");
     expect(deliveryScript).toContain("node_modules/sharp");
+    expect(deliveryScript).toContain("detect-libc");
+    expect(deliveryScript).toContain("semver");
+    expect(deliveryScript).toContain("@img/colour");
     expect(deliveryScript).toContain("sharp-darwin-arm64");
     expect(deliveryScript).toContain("sharp-libvips-darwin-arm64");
     expect(deliveryScript).toContain("sharp-darwin-arm64.node");
@@ -219,8 +222,9 @@ describe("CLI launcher packaging", () => {
     expect(script).toContain("0");
     expect(script).toContain("/etsy-image-agent");
     expect(script).toContain("/settings/openai");
+    expect(script).toContain("/api/etsy-agent/diagnostics/sharp");
     expect(script).toContain("ETSYAUTO_NO_PAUSE");
-    expect(script).toContain("require('sharp')");
+    expect(script).not.toContain("require('sharp')");
   });
 
   it("keeps sharp native loading out of modules imported during server startup", () => {

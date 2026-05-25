@@ -16,6 +16,9 @@ const requiredDeliveryFiles = [
   "启动 Etsyauto.command",
   "public/etsy-image-agent.html",
   "node_modules/sharp/lib/sharp.js",
+  "node_modules/detect-libc/package.json",
+  "node_modules/semver/package.json",
+  "node_modules/@img/colour/package.json",
   "node_modules/@img/sharp-darwin-arm64/lib/sharp-darwin-arm64.node",
 ];
 
@@ -53,10 +56,24 @@ function findSharpSidecarPackage(packageName) {
   throw new Error(`Missing Mac sharp sidecar package: @img/${packageName}`);
 }
 
+function findSharpDependencyPackage(packageName) {
+  const sharpRoot = path.join(projectRoot, "node_modules", "sharp");
+  assertExists(sharpRoot, "sharp package");
+  const requireFromSharp = createRequire(path.join(fs.realpathSync(sharpRoot), "package.json"));
+  return path.dirname(requireFromSharp.resolve(`${packageName}/package.json`));
+}
+
+function copySharpDependencyPackage(packageName) {
+  copyPath(findSharpDependencyPackage(packageName), path.join(packageDir, "node_modules", ...packageName.split("/")));
+}
+
 function copyRuntimeEntries() {
   copyPath(launcherPath, path.join(packageDir, "Etsyauto"));
   copyPath(path.join(projectRoot, "public"), path.join(packageDir, "public"));
   copyPath(path.join(projectRoot, "node_modules", "sharp"), path.join(packageDir, "node_modules", "sharp"));
+  copySharpDependencyPackage("detect-libc");
+  copySharpDependencyPackage("semver");
+  copySharpDependencyPackage("@img/colour");
   copyPath(findSharpSidecarPackage("sharp-darwin-arm64"), path.join(packageDir, "node_modules", "@img", "sharp-darwin-arm64"));
   copyPath(findSharpSidecarPackage("sharp-libvips-darwin-arm64"), path.join(packageDir, "node_modules", "@img", "sharp-libvips-darwin-arm64"));
 }
@@ -102,6 +119,9 @@ function writeCommandLauncher() {
     '  "public/etsy-image-agent.html"',
     '  "public/openai-settings.html"',
     '  "node_modules/sharp/lib/sharp.js"',
+    '  "node_modules/detect-libc/package.json"',
+    '  "node_modules/semver/package.json"',
+    '  "node_modules/@img/colour/package.json"',
     '  "node_modules/@img/sharp-darwin-arm64/lib/sharp-darwin-arm64.node"',
     '  "node_modules/@img/sharp-libvips-darwin-arm64/lib"',
     ")",

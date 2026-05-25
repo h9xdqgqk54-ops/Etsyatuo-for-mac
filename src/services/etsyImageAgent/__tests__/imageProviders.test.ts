@@ -318,6 +318,7 @@ describe("OpenAI image provider", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "etsy-openai-bad-response-"));
     const inputPath = path.join(tmp, "reference.jpg");
     fs.writeFileSync(inputPath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+    process.env.OPENAI_PROXY_URL = "http://127.0.0.1:9";
     const editMock = vi.fn()
       .mockReturnValueOnce({ withResponse: async () => ({ data: { data: [] }, request_id: "req_empty", response: new Response() }) })
       .mockReturnValueOnce({ withResponse: async () => ({ data: { data: [{ b64_json: Buffer.from("not an image").toString("base64") }] }, request_id: "req_invalid", response: new Response() }) })

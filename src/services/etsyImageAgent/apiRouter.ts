@@ -13,6 +13,7 @@ import { finalizeBatchListing, listProductListingRecords, regenerateProductListi
 import { generateProductWorkbenchStyleNames, getProductWorkbench, syncProductWorkbench, updateProductWorkbenchStyleNames } from "./productWorkbenchService.js";
 import { clearStalePromptProviderFailures, generatePromptsFromImages, listImagePromptRecords, regenerateImagePromptRecord, saveManualImagePromptRecord, updateImagePromptRecord } from "./promptGenerationService.js";
 import { runRealImageSmokeTest } from "./realSmokeTest.js";
+import { diagnoseSharpRuntime } from "./sharpRuntime.js";
 import { cancelTask, createEtsyAgentTask, getTask, getTasks, regenerateAsset, retryTask, retryTaskProduct } from "./taskQueue.js";
 import { deleteLocalGpt55Key, deleteLocalOpenAIKey, publicOpenAISettingsStatus, saveLocalGpt55PromptSettings, saveLocalOpenAIBaseURL, saveLocalOpenAIImageModel, saveLocalOpenAIInputFidelity, saveLocalOpenAIKey, testGpt55PromptProviderConnection, testOpenAIConnection } from "./secureConfig.js";
 import { publicErrorPayload } from "./structuredErrors.js";
@@ -61,6 +62,10 @@ export async function handleEtsyAgentRoute(req: http.IncomingMessage, res: http.
 
     if (method === "GET" && pathname === "/api/etsy-agent/folder-settings") {
       return json(res, 200, { ok: true, data: getImageAgentFolderSettings() });
+    }
+
+    if (method === "GET" && pathname === "/api/etsy-agent/diagnostics/sharp") {
+      return json(res, 200, { ok: true, data: await diagnoseSharpRuntime() });
     }
 
     if (method === "POST" && pathname === "/api/etsy-agent/folder-settings") {

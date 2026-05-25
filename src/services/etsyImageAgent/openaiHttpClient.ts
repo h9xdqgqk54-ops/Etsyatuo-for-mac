@@ -1,25 +1,20 @@
 import { execFileSync } from "node:child_process";
-import { fetch as undiciFetch, install, ProxyAgent } from "undici";
+import { fetch as undiciFetch, ProxyAgent } from "undici";
 
 let cachedProxyUrl: string | null | undefined;
 let cachedProxyAgent: ProxyAgent | undefined;
 let cachedProxyFetch: typeof fetch | undefined;
-let installedUndiciGlobals = false;
 
 export function openAIFetch(): typeof fetch | undefined {
   const proxyUrl = resolveOpenAIProxyUrl();
   if (!proxyUrl) return undefined;
   if (cachedProxyFetch) return cachedProxyFetch;
-  ensureUndiciGlobals();
   if (!cachedProxyAgent) {
     cachedProxyAgent = new ProxyAgent(proxyUrl);
   }
-  cachedProxyFetch = Object.assign(
-    ((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
-      return undiciFetch(input as never, { ...(init ?? {}), dispatcher: cachedProxyAgent } as never) as never;
-    }) as typeof fetch,
-    { Response: globalThis.Response },
-  );
+  cachedProxyFetch = ((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    return undiciFetch(input as never, { ...(init ?? {}), dispatcher: cachedProxyAgent } as never) as never;
+  }) as typeof fetch;
   return cachedProxyFetch;
 }
 
@@ -35,12 +30,6 @@ function resolveOpenAIProxyUrl(): string | null {
   if (cachedProxyUrl !== undefined) return cachedProxyUrl;
   cachedProxyUrl = proxyFromEnv() ?? proxyFromMacOSSystem();
   return cachedProxyUrl;
-}
-
-function ensureUndiciGlobals(): void {
-  if (installedUndiciGlobals) return;
-  install();
-  installedUndiciGlobals = true;
 }
 
 function proxyFromEnv(): string | null {

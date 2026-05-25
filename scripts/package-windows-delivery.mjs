@@ -23,6 +23,9 @@ const requiredDeliveryFiles = [
   "Etsyauto.exe",
   "public/etsy-image-agent.html",
   "node_modules/sharp/lib/sharp.js",
+  "node_modules/detect-libc/package.json",
+  "node_modules/semver/package.json",
+  "node_modules/@img/colour/package.json",
   "node_modules/@img/sharp-win32-x64/lib/sharp-win32-x64.node",
   "node_modules/@img/sharp-libvips-win32-x64/lib/libvips-42.dll",
 ];
@@ -37,6 +40,25 @@ function copyRuntimeEntry(entry) {
   const source = path.join(projectRoot, entry.from);
   const target = path.join(packageDir, entry.to);
   assertExists(source, entry.from);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.cpSync(source, target, {
+    dereference: true,
+    errorOnExist: false,
+    force: true,
+    recursive: true,
+  });
+}
+
+function findSharpDependencyPackage(packageName) {
+  const sharpRoot = path.join(projectRoot, "node_modules", "sharp");
+  assertExists(sharpRoot, "sharp package");
+  const requireFromSharp = createRequire(path.join(fs.realpathSync(sharpRoot), "package.json"));
+  return path.dirname(requireFromSharp.resolve(`${packageName}/package.json`));
+}
+
+function copySharpDependencyPackage(packageName) {
+  const source = findSharpDependencyPackage(packageName);
+  const target = path.join(packageDir, "node_modules", ...packageName.split("/"));
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.cpSync(source, target, {
     dereference: true,
@@ -89,6 +111,9 @@ assertExists(exePath, "Windows launcher exe");
 fs.rmSync(packageDir, { force: true, recursive: true });
 fs.mkdirSync(packageDir, { recursive: true });
 for (const entry of copyEntries) copyRuntimeEntry(entry);
+copySharpDependencyPackage("detect-libc");
+copySharpDependencyPackage("semver");
+copySharpDependencyPackage("@img/colour");
 writeReadme();
 assertDeliveryPackage();
 await zipDeliveryFolder();
