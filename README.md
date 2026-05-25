@@ -194,7 +194,7 @@ Prompt records 落盘在 `data/etsy-agent/prompt-records.json`，重启本地服
 - `/etsy-image-agent`：主工作台，Prompt 生成、人工确认、OpenAI 生图和质检。
 - `/settings/openai`：Provider 状态页，显示 GPT5.5 Prompt Provider 和 OpenAI Image Provider 的脱敏配置状态。
 
-`/settings/openai` 也可以临时填写 `GPT55_API_KEY`、`GPT55_BASE_URL`、`GPT55_MODEL` 和 OpenAI 配置。浏览器只把这些值提交给本地后端，实际 GPT5.5 和 OpenAI 调用仍由后端完成；网页输入的 key 只保存在服务进程内存，重启后丢失。有效的 `.env` key 优先于网页 session key。
+`/settings/openai` 也可以临时填写 `GPT55_API_KEY`、`GPT55_BASE_URL`、`GPT55_MODEL`、OpenAI Key/Base URL、`OPENAI_IMAGE_MODEL` 和 Input fidelity。浏览器只把这些值提交给本地后端，实际 GPT5.5 和 OpenAI 调用仍由后端完成；网页输入的 key 和图片模型只保存在服务进程内存，重启后丢失。有效的 `.env` key 优先于网页 session key；网页填写的 `OPENAI_IMAGE_MODEL` 可用于修复中转站 `model_not_found` / `No available channel` 这类图片模型通道错误。
 
 网页不会把任何 key 写入 `localStorage`、`sessionStorage`、前端源码或测试快照。API 响应只返回 `configured`、`maskedKey`、`fingerprint` 等脱敏状态，日志不记录图片 base64。
 

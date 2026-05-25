@@ -383,6 +383,7 @@ describe("OpenAI image provider", () => {
     const cases = [
       [{ status: 400, message: "The model 'gpt-image-2' does not support the 'input_fidelity' parameter." }, "OPENAI_IMAGE_PARAMETER_UNSUPPORTED"],
       [{ status: 404, message: "model not found" }, "OPENAI_IMAGE_MODEL_UNAVAILABLE"],
+      [{ status: 503, message: "model_not_found: 503 No available channel for model gpt-image-2 under group default (distributor)" }, "OPENAI_IMAGE_MODEL_UNAVAILABLE"],
       [{ status: 403, message: "organization verification required" }, "OPENAI_ORG_VERIFICATION_REQUIRED"],
       [{ status: 429, code: "insufficient_quota", message: "insufficient quota" }, "OPENAI_INSUFFICIENT_QUOTA"],
       [{ status: 429, message: "rate limit" }, "OPENAI_RATE_LIMITED"],

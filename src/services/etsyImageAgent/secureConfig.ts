@@ -10,6 +10,7 @@ export type ApiKeySource = "env" | "session" | "none" | "not_configured";
 export type OpenAIBaseURLSource = "env" | "session" | "default";
 export type OpenAIInputFidelity = "off" | "low" | "high";
 export type OpenAIInputFidelitySource = "env" | "session" | "default";
+export type OpenAIImageModelSource = "env" | "session" | "default";
 
 export interface ImageProviderDiagnostic {
   code: string;
@@ -27,6 +28,7 @@ export interface OpenAIProviderStatus {
   baseURL?: string;
   baseURLSource: OpenAIBaseURLSource;
   model: string;
+  modelSource: OpenAIImageModelSource;
   imageSize: string;
   imageQuality: string;
   inputFidelity: OpenAIInputFidelity;
@@ -53,6 +55,7 @@ export interface OpenAISettingsStatus {
   provider: ImageProviderId;
   selectedProvider: ImageProviderId;
   model: string;
+  modelSource: OpenAIImageModelSource;
   imageSize: string;
   imageQuality: string;
   inputFidelity: OpenAIInputFidelity;
@@ -141,6 +144,7 @@ export interface ProviderSecret {
 
 let sessionOpenAIApiKey = "";
 let sessionOpenAIBaseURL: string | undefined;
+let sessionOpenAIImageModel = "";
 let sessionOpenAIInputFidelity: OpenAIInputFidelity | undefined;
 let hasSessionOpenAIInputFidelity = false;
 let sessionArkApiKey = "";
@@ -170,6 +174,7 @@ export function getImageProviderConfig(): ImageProviderConfig {
   const keySource: "env" | "session" | "none" = envOpenAIKey ? "env" : sessionKey ? "session" : "none";
   const configured = Boolean(openAIKey);
   const baseURL = effectiveOpenAIBaseURL();
+  const model = effectiveOpenAIImageModel();
   const inputFidelity = effectiveOpenAIInputFidelity();
   const diagnostics: string[] = configured ? [] : ["OPENAI_API_KEY_MISSING"];
   const diagnosticsDetailed = imageProviderDiagnostics(configured, etsyAgentConfig.enableRealGeneration);
@@ -187,7 +192,8 @@ export function getImageProviderConfig(): ImageProviderConfig {
         fingerprint: openAIKey ? keyFingerprint(openAIKey) : undefined,
         baseURL: baseURL.value,
         baseURLSource: baseURL.source,
-        model: etsyAgentConfig.openaiImageModel,
+        model: model.value,
+        modelSource: model.source,
         imageSize: etsyAgentConfig.openaiImageSize,
         imageQuality: etsyAgentConfig.openaiImageQuality,
         inputFidelity: inputFidelity.value,
@@ -213,6 +219,7 @@ export function getEffectiveOpenAISettings(): EffectiveOpenAISettings {
     provider: "openai",
     selectedProvider: "openai",
     model: openai.model,
+    modelSource: openai.modelSource,
     imageSize: openai.imageSize,
     imageQuality: openai.imageQuality,
     inputFidelity: openai.inputFidelity,
@@ -511,6 +518,14 @@ export function saveLocalOpenAIInputFidelity(inputFidelity: string): OpenAISetti
   sessionOpenAIInputFidelity = normalized;
   hasSessionOpenAIInputFidelity = true;
   appendSecurityEvent("openai_input_fidelity_saved", { inputFidelity: normalized, source: "session" });
+  return publicOpenAISettingsStatus();
+}
+
+export function saveLocalOpenAIImageModel(model: string): OpenAISettingsStatus {
+  ensureWebKeyConfigAllowed();
+  const normalized = normalizeOpenAIImageModel(model);
+  sessionOpenAIImageModel = normalized;
+  appendSecurityEvent("openai_image_model_saved", { model: normalized || "default", source: normalized ? "session" : "default" });
   return publicOpenAISettingsStatus();
 }
 
@@ -837,6 +852,14 @@ function effectiveOpenAIBaseURL(): { value: string; source: OpenAIBaseURLSource 
   return { value: "https://allin-api.com/v1", source: "default" };
 }
 
+function effectiveOpenAIImageModel(): { value: string; source: OpenAIImageModelSource } {
+  const sessionModel = configuredOpenAIImageModel(sessionOpenAIImageModel);
+  if (sessionModel) return { value: sessionModel, source: "session" };
+  const envModel = configuredOpenAIImageModel(process.env.OPENAI_IMAGE_MODEL ?? "");
+  if (envModel) return { value: envModel, source: "env" };
+  return { value: "gpt-image-2", source: "default" };
+}
+
 function effectiveOpenAIInputFidelity(): { value: OpenAIInputFidelity; source: OpenAIInputFidelitySource } {
   const session = sessionOpenAIInputFidelity;
   if (hasSessionOpenAIInputFidelity && session) return { value: session, source: "session" };
@@ -886,6 +909,28 @@ function normalizeOpenAIInputFidelity(raw: string): OpenAIInputFidelity {
   const value = raw.trim().toLowerCase();
   if (value === "off" || value === "low" || value === "high") return value;
   throw new Error("OpenAI Input fidelity 只支持 off、low 或 high。");
+}
+
+function normalizeOpenAIImageModel(raw: string): string {
+  const model = raw.trim();
+  if (!model) return "";
+  if (isPlaceholderOpenAIImageModel(model)) throw new Error("OPENAI_IMAGE_MODEL 仍是占位符，请填写你的图片模型名称。");
+  if (/\s/.test(model)) throw new Error("OPENAI_IMAGE_MODEL 不能包含空白字符。");
+  return model;
+}
+
+function configuredOpenAIImageModel(raw: string): string {
+  const model = raw.trim();
+  return model && !isPlaceholderOpenAIImageModel(model) ? model : "";
+}
+
+function isPlaceholderOpenAIImageModel(model: string): boolean {
+  const normalized = model.trim().toLowerCase().replace(/[<>\s]/g, "").replace(/-/g, "_");
+  return [
+    "your_openai_image_model_here",
+    "openai_image_model",
+    "replace_with_your_openai_image_model",
+  ].includes(normalized);
 }
 
 function normalizeOpenAIBaseURL(raw: string): string {
@@ -1030,6 +1075,7 @@ function providerStatusList(config: ImageProviderConfig): OpenAISettingsStatus["
       inputFidelity: openai.inputFidelity,
       inputFidelitySource: openai.inputFidelitySource,
       model: openai.model,
+      modelSource: openai.modelSource,
       imageSize: openai.imageSize,
       imageQuality: openai.imageQuality,
     },

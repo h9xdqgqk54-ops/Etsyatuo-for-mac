@@ -93,6 +93,33 @@ describe("secureConfig", () => {
     expect(() => mod.saveLocalOpenAIInputFidelity("ultra")).toThrow(/off、low 或 high/);
   });
 
+  it("saves OpenAI image model in session memory without changing GPT5.5 prompt settings", async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "etsy-secure-"));
+    process.env.ETSY_AGENT_CONFIG_PATH = path.join(tmp, "secure-config.json");
+    process.env.ETSY_AGENT_SECURITY_LOG_PATH = path.join(tmp, "security.log");
+    process.env.OPENAI_IMAGE_MODEL = "";
+    process.env.GPT55_MODEL = "env-gpt55-model";
+    const mod = await import("../secureConfig.js");
+
+    const initial = mod.publicOpenAISettingsStatus();
+    expect(initial.model).toBe("gpt-image-2");
+    expect(initial.modelSource).toBe("default");
+    expect(initial.promptProvider.model).toBe("env-gpt55-model");
+
+    const status = mod.saveLocalOpenAIImageModel("relay-image-model");
+    expect(status.model).toBe("relay-image-model");
+    expect(status.modelSource).toBe("session");
+    expect(status.providersById.openai.model).toBe("relay-image-model");
+    expect(status.providersById.openai.modelSource).toBe("session");
+    expect(status.promptProvider.model).toBe("env-gpt55-model");
+    expect(fs.existsSync(path.join(tmp, "secure-config.json"))).toBe(false);
+
+    const reset = mod.saveLocalOpenAIImageModel("");
+    expect(reset.model).toBe("gpt-image-2");
+    expect(reset.modelSource).toBe("default");
+    expect(() => mod.saveLocalOpenAIImageModel("bad model")).toThrow(/不能包含空白字符/);
+  });
+
   it("saves GPT5.5 prompt provider settings in session memory without returning plaintext", async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "etsy-secure-"));
     process.env.ETSY_AGENT_CONFIG_PATH = path.join(tmp, "secure-config.json");

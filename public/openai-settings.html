@@ -21,9 +21,10 @@
   </section>
   <section class="panel">
     <h2 style="margin:0 0 12px">OpenAI 图生图</h2>
-    <p class="muted">OpenAI Key 和 Base URL 只用于最终 Images edit 图生图。网页输入的 OpenAI Key 仅保存在当前服务进程内存，不写入浏览器存储，重启服务后会丢失。长期使用推荐在 `.env` 配置 OPENAI_API_KEY 和 OPENAI_BASE_URL。</p>
+    <p class="muted">OpenAI Key、Base URL 和 OPENAI_IMAGE_MODEL 只用于最终 Images edit 图生图。网页输入的 OpenAI Key 和图片模型仅保存在当前服务进程内存，不写入浏览器存储，重启服务后会丢失。长期使用推荐在 `.env` 配置 OPENAI_API_KEY、OPENAI_BASE_URL 和 OPENAI_IMAGE_MODEL。若中转站提示 model_not_found 或 No available channel，请按服务商开通的模型名称修改 OPENAI_IMAGE_MODEL。</p>
     <div class="field"><label>OpenAI API Key</label><input id="apiKeyInput" type="password" autocomplete="off" placeholder="sk-..."></div>
     <div class="field"><label>Base URL</label><input id="baseUrlInput" type="url" autocomplete="off" placeholder="默认：https://allin-api.com/v1"></div>
+    <div class="field"><label>OPENAI_IMAGE_MODEL / 图片模型</label><input id="imageModelInput" type="text" autocomplete="off" placeholder="默认：gpt-image-2"></div>
     <div class="field"><label>Input fidelity</label><select id="inputFidelityInput"><option value="off">off（默认，兼容中转站）</option><option value="low">low</option><option value="high">high</option></select></div>
     <div class="row"><button class="btn primary" onclick="saveOpenAISettings()">保存 OpenAI 配置</button><button class="btn secondary" onclick="clearBaseURL()">清空 Base URL</button><button class="btn danger" onclick="deleteOpenAIKey()">删除网页 OpenAI Key</button></div>
   </section>

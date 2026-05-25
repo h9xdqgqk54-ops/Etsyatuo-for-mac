@@ -14,7 +14,7 @@ import { generateProductWorkbenchStyleNames, getProductWorkbench, syncProductWor
 import { clearStalePromptProviderFailures, generatePromptsFromImages, listImagePromptRecords, regenerateImagePromptRecord, saveManualImagePromptRecord, updateImagePromptRecord } from "./promptGenerationService.js";
 import { runRealImageSmokeTest } from "./realSmokeTest.js";
 import { cancelTask, createEtsyAgentTask, getTask, getTasks, regenerateAsset, retryTask, retryTaskProduct } from "./taskQueue.js";
-import { deleteLocalGpt55Key, deleteLocalOpenAIKey, publicOpenAISettingsStatus, saveLocalGpt55PromptSettings, saveLocalOpenAIBaseURL, saveLocalOpenAIInputFidelity, saveLocalOpenAIKey, testGpt55PromptProviderConnection, testOpenAIConnection } from "./secureConfig.js";
+import { deleteLocalGpt55Key, deleteLocalOpenAIKey, publicOpenAISettingsStatus, saveLocalGpt55PromptSettings, saveLocalOpenAIBaseURL, saveLocalOpenAIImageModel, saveLocalOpenAIInputFidelity, saveLocalOpenAIKey, testGpt55PromptProviderConnection, testOpenAIConnection } from "./secureConfig.js";
 import { publicErrorPayload } from "./structuredErrors.js";
 import { ETSY_PROMPT_TEMPLATES } from "./templates.js";
 import type { AgentApiResponse } from "./types.js";
@@ -69,7 +69,7 @@ export async function handleEtsyAgentRoute(req: http.IncomingMessage, res: http.
     }
 
     if (method === "POST" && (pathname === "/api/etsy-agent/image-provider-settings" || pathname === "/api/etsy-agent/openai-settings")) {
-      const body = parseJsonBody<{ apiKey?: string; openaiApiKey?: string; baseURL?: string; baseUrl?: string; openaiBaseURL?: string; openaiBaseUrl?: string; inputFidelity?: string; openaiInputFidelity?: string; gpt55ApiKey?: string; gpt55BaseURL?: string; gpt55BaseUrl?: string; gpt55Model?: string }>(await readRawBody(req, etsyAgentConfig.maxJsonBodyBytes));
+      const body = parseJsonBody<{ apiKey?: string; openaiApiKey?: string; baseURL?: string; baseUrl?: string; openaiBaseURL?: string; openaiBaseUrl?: string; inputFidelity?: string; openaiInputFidelity?: string; openaiImageModel?: string; imageModel?: string; gpt55ApiKey?: string; gpt55BaseURL?: string; gpt55BaseUrl?: string; gpt55Model?: string }>(await readRawBody(req, etsyAgentConfig.maxJsonBodyBytes));
       let status = publicOpenAISettingsStatus();
       if (typeof body.apiKey === "string" && body.apiKey.trim()) status = saveLocalOpenAIKey(body.apiKey);
       if (typeof body.openaiApiKey === "string" && body.openaiApiKey.trim()) status = saveLocalOpenAIKey(body.openaiApiKey);
@@ -77,6 +77,8 @@ export async function handleEtsyAgentRoute(req: http.IncomingMessage, res: http.
       if (typeof baseURL === "string") status = saveLocalOpenAIBaseURL(baseURL);
       const inputFidelity = body.openaiInputFidelity ?? body.inputFidelity;
       if (typeof inputFidelity === "string") status = saveLocalOpenAIInputFidelity(inputFidelity);
+      const openaiImageModel = body.openaiImageModel ?? body.imageModel;
+      if (typeof openaiImageModel === "string") status = saveLocalOpenAIImageModel(openaiImageModel);
       const gpt55BaseURL = body.gpt55BaseURL ?? body.gpt55BaseUrl;
       let stalePromptFailuresCleared = 0;
       if ((typeof body.gpt55ApiKey === "string" && body.gpt55ApiKey.trim()) || typeof gpt55BaseURL === "string" || typeof body.gpt55Model === "string") {
@@ -472,6 +474,7 @@ function openAIOnlySettingsStatus(input = publicOpenAISettingsStatus()): Record<
     provider: "openai",
     selectedProvider: "openai",
     model: openaiProvider.model,
+    modelSource: openaiProvider.modelSource,
     imageSize: openaiProvider.imageSize,
     imageQuality: openaiProvider.imageQuality,
     inputFidelity: openaiProvider.inputFidelity,
@@ -494,6 +497,7 @@ function openAIOnlySettingsStatus(input = publicOpenAISettingsStatus()): Record<
       inputFidelity: openaiProvider.inputFidelity,
       inputFidelitySource: openaiProvider.inputFidelitySource,
       model: openaiProvider.model,
+      modelSource: openaiProvider.modelSource,
       imageSize: openaiProvider.imageSize,
       imageQuality: openaiProvider.imageQuality,
     }],

@@ -3,6 +3,7 @@ async function api(url,opts){const r=await fetch(url,opts);const j=await r.json(
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
 function readableError(e){
   const code=e?.code||e?.details?.code||'';
+  if(code==='OPENAI_IMAGE_MODEL_UNAVAILABLE')return openAIImageModelUnavailableText(e?.details?.model||settings?.model||imageModelFromErrorText(e?.message));
   const map={
     INPUT_DIR_NOT_FOUND:'图片输入目录不存在，请按左侧路径创建目录，或在 .env 设置 IMAGE_AGENT_INPUT_DIR。',
     PROMPT_REQUIRED:'有图片还没有提示词。请先根据图片自动生成提示词，保存并通过后再生图。',
@@ -26,7 +27,7 @@ function readableError(e){
     OPENAI_IMAGE_EMPTY_RESPONSE:'OpenAI 或中转站返回成功，但响应中没有可保存图片。请确认该 Base URL 支持 OpenAI Images edit 非流式图生图。',
     OPENAI_IMAGE_INVALID_RESPONSE_IMAGE:'OpenAI 或中转站返回的数据不是有效图片，未保存伪造结果。',
     OPENAI_IMAGE_DOWNLOAD_FAILED:'OpenAI 返回了图片 URL，但下载或校验失败。请确认中转站返回的是可下载图片。',
-    OPENAI_IMAGE_MODEL_UNAVAILABLE:'当前账号无法使用所选图片模型，请检查 gpt-image-2 权限。',
+    OPENAI_IMAGE_MODEL_UNAVAILABLE:'当前账号无法使用所选图片模型，请检查 Provider 设置里的 OPENAI_IMAGE_MODEL。',
     OPENAI_ORG_VERIFICATION_REQUIRED:'OpenAI 账号或组织需要完成验证。',
     OPENAI_INSUFFICIENT_QUOTA:'OpenAI 额度或账单不可用。',
     OPENAI_RATE_LIMITED:'OpenAI 请求触发限流，请稍后重试。',
@@ -50,6 +51,25 @@ function readableError(e){
     GPT55_LISTING_REVISION_FAILED:'GPT5.5 按人工建议改写商品信息失败，请检查配置或稍后重试。'
   };
   return map[code]||e?.message||String(e);
+}
+function imageModelFromErrorText(text){
+  const raw=String(text||'');
+  return raw.match(/for model ['"]?([^'"\s)]+)['"]?/i)?.[1]||raw.match(/model ['"]([^'"]+)['"]/i)?.[1]||settings?.model||'当前图片模型';
+}
+function isOpenAIImageModelUnavailableText(text){
+  return /OPENAI_IMAGE_MODEL_UNAVAILABLE|model_not_found|No available channel for model|model not found|unsupported model|not have access|invalid model/i.test(String(text||''));
+}
+function openAIImageModelUnavailableText(model){
+  const name=model||settings?.model||'当前图片模型';
+  return `当前中转账号没有 ${name} 图片模型通道，或当前 Key 无权访问。请打开 Provider 设置，修改 OPENAI_IMAGE_MODEL 后回到这里点击“重新生成图片”；也可以联系中转服务商开通该模型。`;
+}
+function imageGenerationErrorHtml(error){
+  const text=String(error||'');
+  if(isOpenAIImageModelUnavailableText(text)){
+    const message=openAIImageModelUnavailableText(imageModelFromErrorText(text));
+    return `<div>${esc(message)}</div><div class="row" style="margin-top:8px"><a class="btn secondary" href="/settings/openai">打开 Provider 设置</a></div><div class="muted" style="margin-top:8px;white-space:pre-wrap">原始错误：${esc(text)}</div>`;
+  }
+  return esc(text);
 }
 function promptRecordErrorText(error){
   if(!error)return '';
@@ -109,7 +129,7 @@ function renderStats(){const b=currentBatch;const batchItemList=batchItems(b);co
 function renderBatch(){const b=currentBatch;const batchItemList=batchItems(b);renderStats();renderListing();batchStatus.textContent=b?b.status:'无批次';batchStatus.className='badge '+(!b?'info':b.status==='failed'?'fail':b.status==='approved'?'pass':b.status==='reviewing'?'warning':b.status==='running'?'warning':'info');const progress=b?Math.round(((b.generatedItems+b.approvedItems+b.failedItems)/Math.max(b.totalItems,1))*100):0;progressBar.style.width=progress+'%';const running=batchItemList.filter(item=>item.status==='running'||item.status==='queued').length;batchMeta.textContent=b?`${b.batchId} · ${b.model} · ${b.size} · ${b.quality} · 生成中 ${running} · 待审 ${b.generatedItems} · 失败 ${b.failedItems}`:'提示词通过后会自动进入图片生成和审核。';if(b&&['failed','reviewing','approved','cleared'].includes(b.status)&&/正在调用 OpenAI|正在重新生成/.test(scanBox.textContent||'')){scanBox.className=b.status==='failed'?'alert err':'alert';scanBox.textContent=b.status==='failed'?'图片生成失败。请查看失败卡片，修复配置后点击“重新生成图片”。':b.status==='reviewing'?'图片生成完成，等待人工审核。':b.status==='approved'?'本批已完成输出。':'批次已清理。';}if(!b||!batchItemList.length){items.className='empty';items.textContent='提示词通过后会生成候选图；每张图可通过保存到输出文件夹，或重新生成图片。';return;}items.className='items';items.innerHTML=batchItemList.map(renderItem).join('');}
 function outputImageUrl(batchId,itemId){return`/api/etsy-agent/desktop-batch/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/output-image`;}
 function approvedOutputUrl(item,batch=currentBatch){if(item?.publicUrl)return item.publicUrl;if(item?.status==='approved'&&item?.outputFilePath&&batch?.batchId&&item?.itemId)return outputImageUrl(batch.batchId,item.itemId);return'';}
-function renderItem(item){const statusClass=item.status==='generated'||item.status==='approved'?'pass':item.status==='failed'?'fail':item.status==='running'?'warning':'info';const imageUrl=approvedOutputUrl(item);const imageFallback=item.status==='running'?'生成中...':item.status==='approved'?'已输出：'+(item.outputFileName||''):'等待生成';const img=imageUrl?`<img src="${esc(imageUrl)}" alt="${esc(imageFallback)}" onerror="this.replaceWith(this.alt)">`:`<div class="empty" style="border:0;border-radius:0;min-height:220px">${esc(imageFallback)}</div>`;const actions=item.status==='generated'?`<button class="btn primary" onclick="approveItem('${esc(item.itemId)}')">通过并保存到输出文件夹</button><button class="btn secondary" onclick="regenerateItem('${esc(item.itemId)}')">重新生成图片</button>`:item.status==='failed'?`<button class="btn secondary" onclick="regenerateItem('${esc(item.itemId)}')">重新生成图片</button>`:'';return `<article class="item">${img}<div class="body"><div class="row" style="justify-content:space-between"><b>${esc(item.baseName)}</b><span class="badge ${statusClass}">${esc(item.status)}</span></div><div class="meta muted"><span>图片：${esc(item.inputFileName)}</span><span>Prompt：${esc(item.promptRecordId||'')}</span>${item.outputFileName?`<span>输出：${esc(item.outputFileName)}</span>`:''}</div><div class="prompt">${esc(item.promptPreview||'')}</div>${item.error?`<div class="alert err" style="margin-top:8px">${esc(item.error)}</div>`:''}<div class="row" style="margin-top:10px">${actions}</div></div></article>`}
+function renderItem(item){const statusClass=item.status==='generated'||item.status==='approved'?'pass':item.status==='failed'?'fail':item.status==='running'?'warning':'info';const imageUrl=approvedOutputUrl(item);const imageFallback=item.status==='running'?'生成中...':item.status==='approved'?'已输出：'+(item.outputFileName||''):'等待生成';const img=imageUrl?`<img src="${esc(imageUrl)}" alt="${esc(imageFallback)}" onerror="this.replaceWith(this.alt)">`:`<div class="empty" style="border:0;border-radius:0;min-height:220px">${esc(imageFallback)}</div>`;const actions=item.status==='generated'?`<button class="btn primary" onclick="approveItem('${esc(item.itemId)}')">通过并保存到输出文件夹</button><button class="btn secondary" onclick="regenerateItem('${esc(item.itemId)}')">重新生成图片</button>`:item.status==='failed'?`<button class="btn secondary" onclick="regenerateItem('${esc(item.itemId)}')">重新生成图片</button>`:'';return `<article class="item">${img}<div class="body"><div class="row" style="justify-content:space-between"><b>${esc(item.baseName)}</b><span class="badge ${statusClass}">${esc(item.status)}</span></div><div class="meta muted"><span>图片：${esc(item.inputFileName)}</span><span>Prompt：${esc(item.promptRecordId||'')}</span>${item.outputFileName?`<span>输出：${esc(item.outputFileName)}</span>`:''}</div><div class="prompt">${esc(item.promptPreview||'')}</div>${item.error?`<div class="alert err" style="margin-top:8px">${imageGenerationErrorHtml(item.error)}</div>`:''}<div class="row" style="margin-top:10px">${actions}</div></div></article>`}
 function workbenchMetas(){return Array.isArray(workbenchRecord?.imageMetas)?workbenchRecord.imageMetas:[];}
 function workbenchOutputUrl(meta){if(meta?.publicUrl)return meta.publicUrl;if(meta?.outputFilePath&&meta?.itemId&&workbenchRecord?.batchId)return outputImageUrl(workbenchRecord.batchId,meta.itemId);return'';}
 function workbenchThumb(meta){const label=meta.outputFileName||meta.inputFileName||'Image';const imageUrl=workbenchOutputUrl(meta);if(imageUrl)return`<div class="thumb"><img src="${esc(imageUrl)}" alt="${esc(label)}" loading="lazy" onerror="this.replaceWith(this.alt)"></div>`;return`<div class="thumb">${esc(label)}</div>`;}

@@ -115,6 +115,11 @@ async function main() {
     assertExecutable(executablePath, "Etsyauto executable");
     assertExists(path.join(packageDir, "public", "etsy-image-agent.html"), "workbench HTML");
     assertExists(path.join(packageDir, "public", "openai-settings.html"), "settings HTML");
+    assertExists(path.join(packageDir, "public", "openai-settings.js"), "settings JavaScript");
+    const settingsHtml = fs.readFileSync(path.join(packageDir, "public", "openai-settings.html"), "utf8");
+    const settingsJs = fs.readFileSync(path.join(packageDir, "public", "openai-settings.js"), "utf8");
+    if (!settingsHtml.includes("OPENAI_IMAGE_MODEL") || !settingsHtml.includes("imageModelInput")) fail("settings page does not expose OPENAI_IMAGE_MODEL");
+    if (!settingsJs.includes("openaiImageModel") || !settingsJs.includes("Image model source")) fail("settings JavaScript does not save OPENAI_IMAGE_MODEL");
     assertExists(path.join(packageDir, "node_modules", "sharp", "lib", "sharp.js"), "sharp JavaScript package");
     assertExists(path.join(packageDir, "node_modules", "@img", "sharp-darwin-arm64", "lib", "sharp-darwin-arm64.node"), "sharp darwin arm64 native module");
 

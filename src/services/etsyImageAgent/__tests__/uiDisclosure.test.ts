@@ -120,6 +120,8 @@ describe("GPT5.5 + OpenAI desktop batch UI", () => {
     expect(bundle).toContain("测试 GPT5.5 配置");
     expect(bundle).toContain("OPENAI_API_KEY");
     expect(bundle).toContain("OPENAI_BASE_URL");
+    expect(bundle).toContain("OPENAI_IMAGE_MODEL");
+    expect(bundle).toContain("imageModelInput");
     expect(bundle).toContain("Base URL");
     expect(bundle).toContain("Public URL");
     expect(bundle).toContain("not required");
@@ -159,6 +161,7 @@ interface MockBatchItem {
   status: string;
   outputFilePath?: string;
   outputFileName?: string;
+  error?: string;
   attempts: number;
   createdAt: string;
   updatedAt: string;
@@ -375,6 +378,21 @@ describe("image agent listing runtime", () => {
       expect(await harness.page.locator("#items .item img").getAttribute("src")).toBe(expectedPath);
       expect(await harness.page.locator("#listingBox .meta-card .thumb img").count()).toBe(1);
       expect(await harness.page.locator("#listingBox .meta-card .thumb img").getAttribute("src")).toBe(expectedPath);
+    } finally {
+      await harness.browser.close();
+    }
+  });
+
+  it("shows an actionable provider-settings hint when the relay has no image model channel", async () => {
+    const batch = mockBatch(["failed"]);
+    batch.items[0]!.error = "model_not_found: 503 No available channel for model gpt-image-2 under group default (distributor) (request id: 20260525102926112167631cXI8WwiD)";
+    const harness = await openImageAgentWithBatch(batch);
+    try {
+      await harness.page.waitForSelector("#items .alert.err");
+      const errorText = await harness.page.locator("#items .alert.err").textContent();
+      expect(errorText).toContain("当前中转账号没有 gpt-image-2 图片模型通道");
+      expect(errorText).toContain("Provider 设置");
+      expect(await harness.page.locator("#items .alert.err a[href='/settings/openai']").count()).toBe(1);
     } finally {
       await harness.browser.close();
     }

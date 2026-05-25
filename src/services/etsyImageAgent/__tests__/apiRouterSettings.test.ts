@@ -177,6 +177,39 @@ describe("OpenAI-only settings API routes", () => {
     });
   });
 
+  it("stores web-entered OpenAI image model only in server session memory", async () => {
+    const tmp = setupEnv();
+    process.env.OPENAI_IMAGE_MODEL = "";
+    await withServer(async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/etsy-agent/image-provider-settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ openaiImageModel: "relay-image-model" }),
+      });
+      const json = await response.json() as {
+        ok: boolean;
+        data: {
+          model: string;
+          modelSource: string;
+          providersById: { openai: { model: string; modelSource: string } };
+          promptProvider: { model: string };
+        };
+      };
+      expect(response.status).toBe(200);
+      expect(json.ok).toBe(true);
+      expect(json.data.model).toBe("relay-image-model");
+      expect(json.data.modelSource).toBe("session");
+      expect(json.data.providersById.openai.model).toBe("relay-image-model");
+      expect(json.data.providersById.openai.modelSource).toBe("session");
+      expect(json.data.promptProvider.model).toBe("gpt-5.5");
+      expect(fs.existsSync(path.join(tmp, "secure-config.json"))).toBe(false);
+
+      const getResponse = await fetch(`${baseUrl}/api/etsy-agent/image-provider-settings`);
+      const getJson = await getResponse.json() as { data: { model: string; modelSource: string } };
+      expect(getJson.data).toMatchObject({ model: "relay-image-model", modelSource: "session" });
+    });
+  });
+
   it("exposes env OpenAI Base URL without treating it as a key", async () => {
     setupEnv();
     process.env.OPENAI_BASE_URL = "https://env-relay.example.test/v1/";
