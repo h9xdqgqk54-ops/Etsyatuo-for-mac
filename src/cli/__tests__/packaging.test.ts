@@ -15,6 +15,24 @@ describe("CLI launcher packaging", () => {
     expect(packageJson.pkg?.assets).toEqual(expect.arrayContaining(["public/**/*", "node_modules/sharp/**/*", "node_modules/@img/**/*"]));
   });
 
+  it("declares scripts needed for an Apple Silicon Mac launcher package", () => {
+    const packageJson = JSON.parse(fs.readFileSync(path.resolve("package.json"), "utf-8")) as {
+      scripts?: Record<string, string>;
+    };
+
+    expect(packageJson.scripts?.["package:mac"]).toBe("node scripts/build-cli.mjs && node scripts/package-mac-cli.mjs && node scripts/package-mac-delivery.mjs");
+    expect(fs.existsSync(path.resolve("scripts/package-mac-cli.mjs"))).toBe(true);
+    expect(fs.existsSync(path.resolve("scripts/package-mac-delivery.mjs"))).toBe(true);
+  });
+
+  it("documents the direct-use Mac zip for Apple Silicon users", () => {
+    const readme = fs.readFileSync(path.resolve("README.md"), "utf-8");
+
+    expect(readme).toContain("Mac Apple Silicon 直接使用");
+    expect(readme).toContain("dist/delivery/Etsyauto-Mac.zip");
+    expect(readme).toContain("启动 Etsyauto.command");
+  });
+
   it("supports both npm and pnpm installs without enforcing a single package manager", () => {
     const packageJson = JSON.parse(fs.readFileSync(path.resolve("package.json"), "utf-8")) as {
       dependencies?: Record<string, string>;
@@ -130,6 +148,20 @@ describe("CLI launcher packaging", () => {
     expect(script).toContain("--fallback-to-source");
   });
 
+  it("packages a macOS arm64 launcher without V8 bytecode cache", () => {
+    const scriptPath = path.resolve("scripts/package-mac-cli.mjs");
+    const script = fs.existsSync(scriptPath) ? fs.readFileSync(scriptPath, "utf-8") : "";
+
+    expect(script).toContain("node22-macos-arm64");
+    expect(script).toContain("--no-bytecode");
+    expect(script).toContain("--public");
+    expect(script).toContain("--public-packages");
+    expect(script).toContain("\"*\"");
+    expect(script).toContain("--fallback-to-source");
+    expect(script).toContain("process.platform !== \"darwin\"");
+    expect(script).toContain("process.arch !== \"arm64\"");
+  });
+
   it("assembles a Windows delivery folder with the sharp JavaScript package and native win32 sidecars", () => {
     const packageScript = fs.readFileSync(path.resolve("package.json"), "utf-8");
     const deliveryScriptPath = path.resolve("scripts/package-windows-delivery.mjs");
@@ -142,6 +174,21 @@ describe("CLI launcher packaging", () => {
     expect(deliveryScript).toContain("node_modules/sharp/lib/sharp.js");
     expect(deliveryScript).toContain("sharp-win32-x64.node");
     expect(deliveryScript).toContain("createRequire(import.meta.url)(\"archiver\")");
+    expect(deliveryScript).toContain("new ZipArchive");
+  });
+
+  it("assembles a macOS delivery folder with a double-click command and native darwin arm64 sidecars", () => {
+    const packageScript = fs.readFileSync(path.resolve("package.json"), "utf-8");
+    const deliveryScriptPath = path.resolve("scripts/package-mac-delivery.mjs");
+    const deliveryScript = fs.existsSync(deliveryScriptPath) ? fs.readFileSync(deliveryScriptPath, "utf-8") : "";
+
+    expect(packageScript).toContain("scripts/package-mac-delivery.mjs");
+    expect(deliveryScript).toContain("启动 Etsyauto.command");
+    expect(deliveryScript).toContain("node_modules/sharp");
+    expect(deliveryScript).toContain("sharp-darwin-arm64");
+    expect(deliveryScript).toContain("sharp-libvips-darwin-arm64");
+    expect(deliveryScript).toContain("sharp-darwin-arm64.node");
+    expect(deliveryScript).toContain("libvips-cpp");
     expect(deliveryScript).toContain("new ZipArchive");
   });
 

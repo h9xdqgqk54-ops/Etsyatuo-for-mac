@@ -2,6 +2,23 @@
 
 `/etsy-image-agent` 是当前主工作台：它读取本地图片输入目录，用 GPT5.5 为每张图生成中文电商图生图 prompt、款式英文名和 Etsy listing 文案，人工编辑/通过后，再用 OpenAI Images edit 批量生成候选图。
 
+## Mac Apple Silicon 直接使用
+
+适用于 Apple Silicon Mac（M1/M2/M3/M4）。Mac 用户不需要安装 Git、Node.js、pnpm 或 npm，直接下载仓库里的交付包即可：
+
+```text
+dist/delivery/Etsyauto-Mac.zip
+```
+
+使用步骤：
+
+1. 下载并解压 `dist/delivery/Etsyauto-Mac.zip`。
+2. 双击 `启动 Etsyauto.command`。
+3. 保持打开的终端窗口不要关闭，浏览器会自动进入 Etsyauto 图片 Agent 工作台。
+4. 在网页左侧选择图片输入/输出文件夹，在 `Provider 设置` 中填写自己的 GPT5.5 和 OpenAI Key。
+
+如果 macOS 首次提示无法验证开发者，请在 Finder 里右键 `启动 Etsyauto.command`，选择“打开”。关闭终端窗口即可停止本地服务。不要把 `Etsyauto` 可执行文件单独拖出去运行，它需要同目录下的 `public` 和 `node_modules`。
+
 ## Windows 合作者安装运行指南
 
 适用于已经被邀请为本私有仓库 collaborator 的 Windows 用户。请先确认你已经接受 GitHub 仓库邀请，并且浏览器登录的是被邀请的 GitHub 账号。

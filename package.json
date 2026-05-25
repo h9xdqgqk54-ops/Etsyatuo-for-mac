@@ -10,6 +10,7 @@
     "test": "vitest run",
     "build": "tsc -p tsconfig.json --noEmit",
     "build:cli": "node scripts/build-cli.mjs",
+    "package:mac": "node scripts/build-cli.mjs && node scripts/package-mac-cli.mjs && node scripts/package-mac-delivery.mjs",
     "package:win": "node scripts/build-cli.mjs && node scripts/package-win-cli.mjs && node scripts/package-windows-delivery.mjs",
     "verify:local": "tsx scripts/verify-local.ts",
     "package:source": "node scripts/package-source.mjs"
