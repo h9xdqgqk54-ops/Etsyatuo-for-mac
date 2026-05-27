@@ -17,7 +17,7 @@ shasum -a 256 Etsyauto-Mac.zip
 结果应为：
 
 ```text
-0162ca06729419ab9189628849eacde40ee686893e0f7f855365f4f1e849b8ce
+21c406be963829db11b0fe72f16c45fcad021b7477a2d224a4008d292059b7ed
 ```
 
 ## 2. 解压并启动
@@ -64,6 +64,10 @@ Key 只保存在当前本地服务进程中，重启程序后可能需要重新�
 ### 提示缺少文件
 
 请完整解压 `Etsyauto-Mac.zip`，不要只移动单个 `Etsyauto` 可执行文件。`Etsyauto` 需要和 `public`、`node_modules` 保持在同一个文件夹里。
+
+### 图片审核显示 SHARP_RUNTIME_MISSING
+
+请确认使用的是当前仓库最新的 `Etsyauto-Mac.zip`。旧包在图片处理阶段可能无法从解压目录加载 `sharp`，新版已在真实 Mac 交付包里验证 `/api/etsy-agent/diagnostics/sharp` 通过。
 
 ### Intel Mac 能不能用
 

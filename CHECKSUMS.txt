@@ -1,1 +1,1 @@
-0162ca06729419ab9189628849eacde40ee686893e0f7f855365f4f1e849b8ce  dist/delivery/Etsyauto-Mac.zip
+21c406be963829db11b0fe72f16c45fcad021b7477a2d224a4008d292059b7ed  dist/delivery/Etsyauto-Mac.zip

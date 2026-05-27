@@ -9,6 +9,10 @@
 - 详细安装说明：[`INSTALL_MAC.md`](INSTALL_MAC.md)
 - 构建信息：[`BUILD_INFO.md`](BUILD_INFO.md)
 
+## 本次修复
+
+此版本修复了 Mac 用户在图片审核阶段看到的 `SHARP_RUNTIME_MISSING`。原因是打包后的可执行文件内部使用动态 `import("sharp")` 时会从 `/snapshot` 环境解析依赖，找不到解压目录旁边的 `node_modules/sharp`。新版会从 `Etsyauto` 可执行文件同目录的 sidecar `node_modules` 加载 `sharp`，并在发布前通过真实 Mac 包验证。
+
 ## 快速开始
 
 1. 下载 `dist/delivery/Etsyauto-Mac.zip`。
