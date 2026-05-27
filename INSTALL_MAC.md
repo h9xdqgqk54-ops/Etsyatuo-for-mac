@@ -17,7 +17,7 @@ shasum -a 256 Etsyauto-Mac.zip
 结果应为：
 
 ```text
-21c406be963829db11b0fe72f16c45fcad021b7477a2d224a4008d292059b7ed
+6f5f343fd490b1b66481548c2bca7b990c77db2e523afb7264ab34f87107a932
 ```
 
 ## 2. 解压并启动
@@ -38,7 +38,7 @@ shasum -a 256 Etsyauto-Mac.zip
 3. 选择“打开”。
 4. 在弹窗中再次选择“打开”。
 
-启动脚本会自动尝试移除下载隔离属性，并检查必要文件是否完整。
+如果仍被拦截，请确认是在完整解压后的 `Etsyauto-Mac` 文件夹中右键打开启动脚本。
 
 ## 4. 配置图片文件夹和 Key
 
@@ -68,6 +68,10 @@ Key 只保存在当前本地服务进程中，重启程序后可能需要重新�
 ### 图片审核显示 SHARP_RUNTIME_MISSING
 
 请确认使用的是当前仓库最新的 `Etsyauto-Mac.zip`。旧包在图片处理阶段可能无法从解压目录加载 `sharp`，新版已在真实 Mac 交付包里验证 `/api/etsy-agent/diagnostics/sharp` 通过。
+
+### 图片审核显示 REAL_GENERATION_DISABLED
+
+请确认使用的是当前仓库最新的 `Etsyauto-Mac.zip`。旧包没有在 Mac 桌面启动器里启用真实图片生成开关；新版启动器默认启用，并在发布前验证 `/api/etsy-agent/image-provider-settings` 返回 `realGenerationEnabled=true`。
 
 ### Intel Mac 能不能用
 

@@ -11,7 +11,9 @@
 
 ## 本次修复
 
-此版本修复了 Mac 用户在图片审核阶段看到的 `SHARP_RUNTIME_MISSING`。原因是打包后的可执行文件内部使用动态 `import("sharp")` 时会从 `/snapshot` 环境解析依赖，找不到解压目录旁边的 `node_modules/sharp`。新版会从 `Etsyauto` 可执行文件同目录的 sidecar `node_modules` 加载 `sharp`，并在发布前通过真实 Mac 包验证。
+此版本修复了 Mac 用户在图片审核阶段看到的 `REAL_GENERATION_DISABLED`。根因是桌面启动器没有为本地 Mac 包启用真实图片生成开关，即使用户在网页里填写了 OpenAI Key，服务端配置仍会保持关闭。新版 Mac 启动器会默认设置 `IMAGE_AGENT_ENABLE_REAL_GENERATION=true`，同时仍尊重用户显式设置的禁用值。
+
+此版本也保留并验证了 `SHARP_RUNTIME_MISSING` 修复：打包后的可执行文件内部动态 `import("sharp")` 会从 `/snapshot` 环境解析依赖，找不到解压目录旁边的 `node_modules/sharp`。新版会从 `Etsyauto` 可执行文件同目录的 sidecar `node_modules` 加载 `sharp`。
 
 ## 快速开始
 
