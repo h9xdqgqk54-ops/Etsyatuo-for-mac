@@ -59,6 +59,33 @@ describe("CLI launcher", () => {
     expect(env.ETSY_AGENT_FOLDER_SETTINGS_PATH).toBe("/Users/demo/Library/Application Support/Etsyauto/data/folder-settings.json");
   });
 
+  it("enables real image generation by default for the desktop launcher", () => {
+    const env = buildPortableEnvironment({
+      env: { HOME: "/Users/demo" },
+      platform: "darwin",
+    });
+
+    expect(env.IMAGE_AGENT_ENABLE_REAL_GENERATION).toBe("true");
+  });
+
+  it("does not override an explicit real generation setting", () => {
+    const env = buildPortableEnvironment({
+      env: { HOME: "/Users/demo", IMAGE_AGENT_ENABLE_REAL_GENERATION: "false" },
+      platform: "darwin",
+    });
+
+    expect(env.IMAGE_AGENT_ENABLE_REAL_GENERATION).toBe("false");
+  });
+
+  it("keeps the legacy real generation setting when present", () => {
+    const env = buildPortableEnvironment({
+      env: { HOME: "/Users/demo", ETSY_AGENT_ENABLE_REAL_GENERATION: "false" },
+      platform: "darwin",
+    });
+
+    expect(env.IMAGE_AGENT_ENABLE_REAL_GENERATION).toBe("false");
+  });
+
   it("selects the browser open command for each platform", () => {
     expect(buildBrowserOpenCommand("http://127.0.0.1:3456/etsy-image-agent", "win32")).toEqual({
       args: ["/c", "start", "", "http://127.0.0.1:3456/etsy-image-agent"],

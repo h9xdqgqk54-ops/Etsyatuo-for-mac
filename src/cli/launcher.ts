@@ -93,6 +93,7 @@ export function buildPortableEnvironment(options: PortableEnvironmentOptions = {
     ETSY_AGENT_PROMPT_RECORDS_PATH: env.ETSY_AGENT_PROMPT_RECORDS_PATH || pathApi.join(dataDir, "prompt-records.json"),
     ETSY_AGENT_SECURITY_LOG_PATH: env.ETSY_AGENT_SECURITY_LOG_PATH || pathApi.join(dataDir, "security-events.log"),
     ETSY_AGENT_STORAGE_PATH: env.ETSY_AGENT_STORAGE_PATH || pathApi.join(baseDir, "storage"),
+    IMAGE_AGENT_ENABLE_REAL_GENERATION: desktopRealGenerationDefault(env),
   };
 }
 
@@ -241,6 +242,14 @@ function homeDirForPlatform(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): 
 function ensureDirectory(dir: string | undefined): void {
   if (!dir) return;
   fs.mkdirSync(dir, { recursive: true });
+}
+
+function desktopRealGenerationDefault(env: NodeJS.ProcessEnv): string {
+  const current = env.IMAGE_AGENT_ENABLE_REAL_GENERATION?.trim();
+  if (current) return current;
+  const legacy = env.ETSY_AGENT_ENABLE_REAL_GENERATION?.trim();
+  if (legacy) return legacy;
+  return "true";
 }
 
 async function shutdown(close: () => Promise<void>): Promise<void> {
